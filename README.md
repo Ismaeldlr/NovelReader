@@ -1,10 +1,10 @@
 # NovelReader
 
-## 📖 Objective
+## Objective
 NovelReader is an application designed to upload, manage, organize, and read novels in a convenient way.  
 It aims to support multiple platforms (desktop and mobile) while keeping reading progress, bookmarks, and content synchronized.
 
-## 🛠 Technologies Used
+## Technologies Used
 - **Frontend:** React, React Native
 - **Desktop:** Tauri (with Vite + Rust backend)
 - **Database:** SQLite 
