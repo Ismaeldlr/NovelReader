@@ -1,6 +1,7 @@
 import { Routes, Route } from "react-router-dom";
 import Library from "./pages/Library";
 import NovelDetail from "./pages/NovelDetail";
+import Reader from "./pages/Reader";
 import "./App.css";
 
 export default function App() {

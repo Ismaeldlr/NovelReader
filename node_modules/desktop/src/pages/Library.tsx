@@ -39,7 +39,8 @@ export default function Library() {
     if (!db) return;
     const sampleTitle = `Novel ${Date.now()}`;
     await db.execute(
-      "INSERT INTO novels (title, author, description) VALUES (?, ?, ?)",
+      // use $1, $2, $3 instead of ?
+      "INSERT INTO novels (title, author, description) VALUES ($1, $2, $3)",
       [sampleTitle, "Unknown", "This is a sample novel entry for testing."]
     );
     await loadNovels(db);
