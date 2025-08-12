@@ -44,20 +44,20 @@ export default function NovelDetail() {
   }, [novelId]);
 
   async function loadNovel(db: any) {
-  if (!novelId) {
-    setMsg("No novel id provided.");
-    setNovel(null);
-    return;
-  }
-  console.log("Trying to load novel with id:", novelId);
-  const n = await db.select(
-    "SELECT id, title, author, description, lang_original, status, slug, created_at, updated_at FROM novels WHERE id = $1 LIMIT 1;",
-    [novelId]
+    if (!novelId) {
+      setMsg("No novel id provided.");
+      setNovel(null);
+      return;
+    }
+    console.log("Trying to load novel with id:", novelId);
+    const n = await db.select(
+      "SELECT id, title, author, description, lang_original, status, slug, created_at, updated_at FROM novels WHERE id = $1 LIMIT 1;",
+      [novelId]
     );
 
-  console.log("Query result:", n);
-  setNovel(n[0] ?? null);
-}
+    console.log("Query result:", n);
+    setNovel(n[0] ?? null);
+  }
 
   async function loadChapters(db: any) {
     const ch = await db.select(
@@ -113,6 +113,16 @@ export default function NovelDetail() {
     } catch (err) {
       setMsg("Import error: " + String(err));
     }
+
+  }
+
+  function deleteChapter(cid: number) {
+    (async () => {
+      const db = await initDb();
+      await db.execute("DELETE FROM chapters WHERE id = ?", [cid]);
+      await loadChapters(db);
+      setMsg("Chapter deleted.");
+    })().catch(e => setMsg("Delete error: " + String(e)));
   }
 
   return (
@@ -158,25 +168,48 @@ export default function NovelDetail() {
           </section>
 
           <section className="chapters">
-            <h3>Chapters</h3>
-            {chapters.length === 0 ? (
-              <div className="empty small">
-                <p>No chapters yet.</p>
-                <p className="empty-sub">Use “Add Chapter (TXT)” to import.</p>
-              </div>
-            ) : (
-              <ul className="chapter-list">
-                {chapters.map(c => (
-                  <li key={c.id} className="chapter-item">
-                    <Link to={`/novel/${novelId}/chapter/${c.id}`} className="chapter-link">
-                      <span className="chip">#{c.seq}</span>
-                      <span className="chapter-title">{c.display_title || `Chapter ${c.seq}`}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+  <h3>Chapters</h3>
+  {chapters.length === 0 ? (
+    <div className="empty small">
+      <p>No chapters yet.</p>
+      <p className="empty-sub">Use “Add Chapter (TXT)” to import.</p>
+    </div>
+  ) : (
+    <ul className="chapter-list">
+      {chapters.map(c => (
+        <li key={c.id} className="chapter-item">
+          <Link
+            to={`/novel/${novelId}/chapter/${c.id}`}
+            className="chapter-link"
+          >
+            <span className="chip">#{c.seq}</span>
+            <span className="chapter-title">
+              {c.display_title || `Chapter ${c.seq}`}
+            </span>
+          </Link>
+
+          {/* Delete Button */}
+          <button
+            className="deleteButton"
+            onClick={() => deleteChapter(c.id)}
+          >
+            <svg viewBox="0 0 448 512" className="deleteIcon">
+              <path d="M135.2 17.7L128 32H32C14.3 32 0 
+                46.3 0 64S14.3 96 32 96H416c17.7 0 
+                32-14.3 32-32s-14.3-32-32-32H320l-7.2-14.3C307.4 
+                6.8 296.3 0 284.2 0H163.8c-12.1 0-23.2 
+                6.8-28.6 17.7zM416 128H32L53.2 467c1.6 
+                25.3 22.6 45 47.9 45H346.9c25.3 0 
+                46.3-19.7 47.9-45L416 128z"></path>
+            </svg>
+          </button>
+        </li>
+      ))}
+    </ul>
+  )}
+</section>
+
+
         </>
       )}
     </div>

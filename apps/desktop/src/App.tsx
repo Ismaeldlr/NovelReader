@@ -9,6 +9,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Library />} />
       <Route path="/novel/:id" element={<NovelDetail />} />
+      <Route path="/novel/:id/chapter/:chapterId" element={<Reader />} />
     </Routes>
   );
 }

@@ -12,12 +12,9 @@ export default function Reader() {
   const [chapters, setChapters] = useState<ChapterListItem[]>([]);
   const [current, setCurrent] = useState<ChapterVariant | null>(null);
   const [msg, setMsg] = useState("loading…");
-  const did = useRef(false);
   const nav = useNavigate();
 
   useEffect(() => {
-    if (did.current) return;
-    did.current = true;
     (async () => {
       const db = await initDb();
       await loadChapters(db);
@@ -57,7 +54,17 @@ export default function Reader() {
 
   function openChapter(cid: number) {
     nav(`/novel/${novelId}/chapter/${cid}`);
+    console.log("Opening chapter:", cid);
     // Note: route change remounts; loadCurrent will run again
+  }
+
+  function deleteChapter(cid: number) {
+    (async () => {
+      const db = await initDb();
+      await db.execute("DELETE FROM chapters WHERE id = ?", [cid]);
+      await loadChapters(db);
+      setMsg("Chapter deleted.");
+    })().catch(e => setMsg("Delete error: " + String(e)));
   }
 
   return (
@@ -69,15 +76,32 @@ export default function Reader() {
         </div>
         <div className="chapter-scroll">
           {chapters.map(c => (
-            <button
-              key={c.id}
-              className={`chapter-nav ${c.id === chId ? "active" : ""}`}
-              onClick={() => openChapter(c.id)}
-              title={c.display_title || `Chapter ${c.seq}`}
-            >
-              <span className="chip">#{c.seq}</span>
-              <span className="ellipsis">{c.display_title || `Chapter ${c.seq}`}</span>
-            </button>
+            <div key={c.id} className="chapter-item">
+              <button
+                className={`chapter-nav ${c.id === chId ? "active" : ""}`}
+                onClick={() => openChapter(c.id)}
+                title={c.display_title || `Chapter ${c.seq}`}
+              >
+                <span className="chip">#{c.seq}</span>
+                <span className="ellipsis">{c.display_title || `Chapter ${c.seq}`}</span>
+              </button>
+
+              {/* Delete Button */}
+              <button
+                className="deleteButton"
+                onClick={() => deleteChapter(c.id)}
+              >
+                <svg viewBox="0 0 448 512" className="deleteIcon">
+                  <path d="M135.2 17.7L128 32H32C14.3 32 0 
+                46.3 0 64S14.3 96 32 96H416c17.7 0 
+                32-14.3 32-32s-14.3-32-32-32H320l-7.2-14.3C307.4 
+                6.8 296.3 0 284.2 0H163.8c-12.1 0-23.2 
+                6.8-28.6 17.7zM416 128H32L53.2 467c1.6 
+                25.3 22.6 45 47.9 45H346.9c25.3 0 
+                46.3-19.7 47.9-45L416 128z"></path>
+                </svg>
+              </button>
+            </div>
           ))}
         </div>
       </aside>
