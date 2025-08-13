@@ -247,9 +247,10 @@ body {
 .reader-sidebar-header { display: flex; gap: 8px; }
 
 .chapter-scroll {
-  overflow: auto;
-  display: grid;
-  gap: 6px;
+  overflow-y: auto; 
+  display: flex; 
+  flex-direction: column; 
+  gap: 6px; 
   padding-right: 4px;
 }
 
@@ -368,4 +369,195 @@ body {
   align-items: center;
   justify-content: space-between;
 }
+/* Library Card Container */
+.library-card-container {
+  position: relative;
+}
 
+/* Menu wrapper on card */
+.library-menu-container {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+/* Menu toggle button */
+.library-menu-button {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+/* Dropdown menu box */
+.library-menu {
+  position: absolute;
+  top: 24px;
+  right: 0;
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+}
+
+/* Individual menu items */
+.library-menu-item {
+  display: block;
+  padding: 8px 12px;
+  color: var(--text);
+  background: none;
+  border: none;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+}
+
+.library-menu-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ===== Add Novel Modal (Unique, namespaced) ===== */
+.library-add-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100; /* above cards/menus */
+}
+
+.library-add-modal {
+  width: min(900px, 92vw);
+  max-height: 88vh;
+  overflow: auto;
+  background: var(--panel, #111);
+  color: var(--text, #fff);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+}
+
+.library-add-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.library-add-modal-header h2 {
+  font-size: 1.2rem;
+  margin: 0;
+}
+
+.library-add-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text, #fff);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.library-add-form {
+  padding: 20px 22px 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.library-add-form-row {
+  display: grid;
+  gap: 8px;
+}
+
+.library-add-label {
+  font-size: 0.95rem;
+  opacity: 0.9;
+}
+
+.req {
+  color: #ff6b6b;
+  margin-left: 6px;
+}
+
+.library-add-input,
+.library-add-textarea {
+  width: 100%;
+  background: rgba(255,255,255,0.06);
+  color: var(--text, #fff);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font: inherit;
+  outline: none;
+  transition: border-color .2s ease, background .2s ease, box-shadow .2s ease;
+}
+
+.library-add-input::placeholder,
+.library-add-textarea::placeholder {
+  color: rgba(255,255,255,0.45);
+}
+
+.library-add-input:focus,
+.library-add-textarea:focus {
+  border-color: rgba(255, 99, 132, 0.75);
+  background: rgba(255,255,255,0.08);
+  box-shadow: 0 0 0 4px rgba(255, 99, 132, 0.15);
+}
+
+.library-add-textarea {
+  resize: vertical;
+}
+
+.library-add-error {
+  margin: 6px 2px 0;
+  color: #ff7676;
+  font-size: 0.95rem;
+}
+
+.library-add-actions {
+  margin-top: 4px;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.library-add-btn {
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: var(--text, #fff);
+  padding: 10px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform .08s ease, background .2s ease, border-color .2s ease;
+}
+
+.library-add-btn:hover {
+  background: rgba(255,255,255,0.1);
+}
+
+.library-add-btn:active {
+  transform: translateY(1px);
+}
+
+.library-add-btn.primary {
+  border-color: rgba(255, 99, 132, 0.7);
+  background: linear-gradient(135deg, rgba(255,99,132,0.15), rgba(255, 99, 132, 0.3));
+}
+
+.library-add-btn.primary:hover {
+  background: linear-gradient(135deg, rgba(255,99,132,0.25), rgba(255, 99, 132, 0.45));
+}
+
+/* Existing namespaced card/menu from earlier answer remain the same */
+.library-card-container { position: relative; }
+.library-menu-container { position: absolute; top: 8px; right: 8px; }
+.library-menu-button { background:none; border:none; font-size:18px; cursor:pointer; color:var(--text); }
+.library-menu { position:absolute; top:24px; right:0; background:rgba(0,0,0,0.8); border:1px solid rgba(255,255,255,0.1); border-radius:6px; box-shadow:0 4px 8px rgba(0,0,0,0.2); z-index:10; }
+.library-menu-item { display:block; padding:8px 12px; color:var(--text); background:none; border:none; text-align:left; width:100%; cursor:pointer; }
+.library-menu-item:hover { background: rgba(255,255,255,0.1); }
