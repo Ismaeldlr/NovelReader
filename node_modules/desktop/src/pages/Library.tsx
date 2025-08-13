@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { initDb } from "../db/init";
+import { AddNovelModal } from "./modals/library_add_novel.tsx";
+import { EditNovelModal, EditNovelPayload } from "./modals/library_edit_novel";
 
 type NovelRow = {
   id: number;
@@ -14,17 +16,12 @@ export default function Library() {
   const [msg, setMsg] = useState("starting…");
   const [menuOpen, setMenuOpen] = useState<number | null>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editing, setEditing] = useState<EditNovelPayload | null>(null);
 
-  // Add Novel form state
-  const [formTitle, setFormTitle] = useState("");
-  const [formAuthor, setFormAuthor] = useState("");
-  const [formDesc, setFormDesc] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
 
   const did = useRef(false);
   const dbRef = useRef<any>(null);
-  const addModalRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (did.current) return;
@@ -57,85 +54,71 @@ export default function Library() {
     setMenuOpen(menuOpen === id ? null : id);
   }
 
-  // Open/close Add modal
-  const openAddModal = () => {
-    setFormTitle("");
-    setFormAuthor("");
-    setFormDesc("");
-    setFormError(null);
+  function openAddModal() {
     setIsAddOpen(true);
-  };
-  const closeAddModal = useCallback(() => {
+  }
+  function closeAddModal() {
     setIsAddOpen(false);
-    setFormError(null);
-  }, []);
+  }
 
-  // Close on ESC and click outside
-  useEffect(() => {
-    if (!isAddOpen) return;
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeAddModal();
-    };
-    const onClickOutside = (e: MouseEvent) => {
-      if (
-        addModalRef.current &&
-        e.target instanceof Node &&
-        !addModalRef.current.contains(e.target)
-      ) {
-        closeAddModal();
-      }
-    };
-
-    document.addEventListener("keydown", onKey);
-    document.addEventListener("mousedown", onClickOutside);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.removeEventListener("mousedown", onClickOutside);
-    };
-  }, [isAddOpen, closeAddModal]);
-
-  async function handleAddNovelSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setFormError(null);
-
-    const title = formTitle.trim();
-    const author = formAuthor.trim();
-    const description = formDesc.trim();
-
-    if (!title) {
-      setFormError("Title is required.");
-      return;
-    }
-    if (title.length > 200) {
-      setFormError("Title is too long (max 200 chars).");
-      return;
-    }
-    if (author.length > 200) {
-      setFormError("Author is too long (max 200 chars).");
-      return;
-    }
-    if (description.length > 2000) {
-      setFormError("Description is too long (max 2000 chars).");
-      return;
-    }
-
+  // Modal submit handler: DB insert happens here, modal stays simple.
+  async function handleAddNovelSubmit(data: {
+        title: string;
+        author?: string | null;
+        description?: string | null;
+      }) {
     const db = dbRef.current;
     if (!db) return;
 
-    try {
-      setIsSaving(true);
-      await db.execute(
-        "INSERT INTO novels (title, author, description) VALUES ($1, $2, $3)",
-        [title, author || null, description || null]
-      );
-      await loadNovels(db);
-      setIsSaving(false);
-      setIsAddOpen(false);
-    } catch (err) {
-      setIsSaving(false);
-      setFormError("Failed to save novel: " + String(err));
-    }
+    await db.execute(
+      "INSERT INTO novels (title, author, description) VALUES ($1, $2, $3)",
+      [data.title.trim(), data.author?.trim() || null, data.description?.trim() || null]
+    );
+    await loadNovels(db);
+  }
+
+  function openEditModal(n: any) {
+    setIsEditOpen(true);
+    setEditing({
+      id: n.id,
+      title: n.title,
+      author: n.author ?? null,
+      description: n.description ?? null,
+      cover_path: n.cover_path ?? null,
+      lang_original: n.lang_original ?? null,
+      status: n.status ?? null
+    });
+  }
+  function closeEditModal() {
+    setIsEditOpen(false);
+    setEditing(null);
+  }
+
+  // Submit handler for edit:
+  async function handleEditSubmit(data: EditNovelPayload) {
+    const db = dbRef.current;
+    if (!db) return;
+
+    await db.execute(
+      `UPDATE novels
+     SET title = $1,
+         author = $2,
+         description = $3,
+         cover_path = $4,
+         lang_original = $5,
+         status = $6
+     WHERE id = $7`,
+      [
+        data.title.trim(),
+        data.author ?? null,
+        data.description ?? null,
+        data.cover_path ?? null,
+        data.lang_original ?? null,
+        data.status ?? null,
+        data.id
+      ]
+    );
+    await loadNovels(db);
   }
 
   return (
@@ -143,7 +126,6 @@ export default function Library() {
       <header className="topbar">
         <h1>Library</h1>
         <div className="actions">
-          {/* Replaces old addSampleNovel */}
           <button className="btn" onClick={openAddModal}>+ Add Novel</button>
           <span className="status">{msg}</span>
         </div>
@@ -171,7 +153,6 @@ export default function Library() {
                 </div>
               </Link>
 
-              {/* menu (already namespaced) */}
               <div className="library-menu-container">
                 <button className="library-menu-button" onClick={() => toggleMenu(n.id)}>
                   ⋮
@@ -180,7 +161,7 @@ export default function Library() {
                   <div className="library-menu">
                     <button
                       className="library-menu-item"
-                      onClick={() => alert("Edit feature coming soon!")}
+                      onClick={() => openEditModal(n)}
                     >
                       Edit
                     </button>
@@ -199,85 +180,30 @@ export default function Library() {
       )}
 
       {/* Add Novel Modal */}
-      {isAddOpen && (
-        <div
-          className="library-add-modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="library-add-modal-title"
-        >
-          <div className="library-add-modal" ref={addModalRef}>
-            <header className="library-add-modal-header">
-              <h2 id="library-add-modal-title">Add Novel</h2>
-              <button
-                className="library-add-modal-close"
-                aria-label="Close"
-                onClick={closeAddModal}
-              >
-                ×
-              </button>
-            </header>
+      <AddNovelModal
+        open={isAddOpen}
+        onClose={closeAddModal}
+        onSubmit={async (payload) => {
+          await handleAddNovelSubmit(payload);
+          closeAddModal();
+        }}
+      />
 
-            <form className="library-add-form" onSubmit={handleAddNovelSubmit}>
-              <div className="library-add-form-row">
-                <label htmlFor="add-title" className="library-add-label">Title<span className="req">*</span></label>
-                <input
-                  id="add-title"
-                  className="library-add-input"
-                  type="text"
-                  value={formTitle}
-                  onChange={(e) => setFormTitle(e.target.value)}
-                  autoFocus
-                  required
-                />
-              </div>
-
-              <div className="library-add-form-row">
-                <label htmlFor="add-author" className="library-add-label">Author</label>
-                <input
-                  id="add-author"
-                  className="library-add-input"
-                  type="text"
-                  value={formAuthor}
-                  onChange={(e) => setFormAuthor(e.target.value)}
-                />
-              </div>
-
-              <div className="library-add-form-row">
-                <label htmlFor="add-desc" className="library-add-label">Description</label>
-                <textarea
-                  id="add-desc"
-                  className="library-add-textarea"
-                  placeholder="Brief synopsis, notes, or anything you want to remember."
-                  value={formDesc}
-                  onChange={(e) => setFormDesc(e.target.value)}
-                  rows={6}
-                />
-              </div>
-
-              {formError && <p className="library-add-error">{formError}</p>}
-
-              <div className="library-add-actions">
-                <button
-                  type="button"
-                  className="library-add-btn ghost"
-                  onClick={closeAddModal}
-                  disabled={isSaving}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="library-add-btn primary"
-                  disabled={isSaving}
-                >
-                  {isSaving ? "Saving…" : "Add Novel"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <EditNovelModal
+        open={isEditOpen}
+        initial={editing}
+        onClose={closeEditModal}
+        onSubmit={async (payload) => {
+          await handleEditSubmit(payload);
+          closeEditModal();
+        }}
+        // Optional: use a fixed list of statuses
+        statusOptions={[
+          { value: "ongoing", label: "Ongoing" },
+          { value: "completed", label: "Completed" },
+          { value: "hiatus", label: "Hiatus" }
+        ]}
+      />
     </div>
   );
 }

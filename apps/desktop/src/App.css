@@ -418,7 +418,9 @@ body {
   background: rgba(255, 255, 255, 0.1);
 }
 
+/* ================================================ */
 /* ===== Add Novel Modal (Unique, namespaced) ===== */
+/* ================================================ */
 .library-add-modal-overlay {
   position: fixed;
   inset: 0;
@@ -561,3 +563,165 @@ body {
 .library-menu { position:absolute; top:24px; right:0; background:rgba(0,0,0,0.8); border:1px solid rgba(255,255,255,0.1); border-radius:6px; box-shadow:0 4px 8px rgba(0,0,0,0.2); z-index:10; }
 .library-menu-item { display:block; padding:8px 12px; color:var(--text); background:none; border:none; text-align:left; width:100%; cursor:pointer; }
 .library-menu-item:hover { background: rgba(255,255,255,0.1); }
+
+/* ===== Edit Novel Modal (namespaced) ===== */
+.library-edit-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 101;
+}
+
+.library-edit-modal {
+  width: min(980px, 94vw);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--panel, #111);
+  color: var(--text, #fff);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+}
+
+.library-edit-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.library-edit-modal-header h2 {
+  font-size: 1.2rem;
+  margin: 0;
+}
+
+.library-edit-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text, #fff);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.library-edit-form {
+  padding: 20px 22px 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.library-edit-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr 1fr;
+}
+@media (max-width: 860px) {
+  .library-edit-grid { grid-template-columns: 1fr; }
+}
+
+.library-edit-col { display: grid; gap: 12px; }
+
+.library-edit-form-row { display: grid; gap: 8px; }
+
+.library-edit-label {
+  font-size: 0.95rem;
+  opacity: 0.9;
+}
+
+.library-edit-input,
+.library-edit-textarea,
+.library-edit-form select.library-edit-input {
+  width: 100%;
+  background: rgba(255,255,255,0.06);
+  color: var(--text, #fff);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  padding: 12px 14px;
+  font: inherit;
+  outline: none;
+  transition: border-color .2s ease, background .2s ease, box-shadow .2s ease;
+}
+
+.library-edit-input::placeholder,
+.library-edit-textarea::placeholder { color: rgba(255,255,255,0.45); }
+
+.library-edit-input:focus,
+.library-edit-textarea:focus,
+select.library-edit-input:focus {
+  border-color: rgba(99, 179, 255, 0.75);
+  background: rgba(255,255,255,0.08);
+  box-shadow: 0 0 0 4px rgba(99, 179, 255, 0.15);
+}
+
+.library-edit-textarea { resize: vertical; }
+
+.library-edit-cover-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.library-edit-cover-frame {
+  width: 120px;
+  height: 160px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.library-edit-cover-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.library-edit-cover-note {
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.library-edit-error {
+  margin: 6px 2px 0;
+  color: #ff7676;
+  font-size: 0.95rem;
+}
+
+.library-edit-actions {
+  margin-top: 4px;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.library-edit-btn {
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06);
+  color: var(--text, #fff);
+  padding: 10px 16px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform .08s ease, background .2s ease, border-color .2s ease;
+}
+
+.library-edit-btn:hover { background: rgba(255,255,255,0.1); }
+
+.library-edit-btn:active { transform: translateY(1px); }
+
+.library-edit-btn.primary {
+  border-color: rgba(99, 179, 255, 0.7);
+  background: linear-gradient(135deg, rgba(99,179,255,0.15), rgba(99,179,255,0.3));
+}
+
+.library-edit-btn.primary:hover {
+  background: linear-gradient(135deg, rgba(99,179,255,0.25), rgba(99,179,255,0.45));
+}
