@@ -115,7 +115,10 @@ export default function Reader() {
           </div>
         ) : (
           <article className="reader-article">
-            <h1 className="reader-title">{current.title || "Untitled chapter"}</h1>
+            <div>
+              <h1 className="reader-title">{current.title || "Untitled chapter"}</h1>
+              <Link to={`/novel/${novelId}/editor/${chId}`} className="btn small">Edit Chapter</Link>
+            </div>
             <div className="reader-meta">Variant: {current.variant_type} • Lang: {current.lang}</div>
             <div className="reader-content">{current.content}</div>
           </article>
