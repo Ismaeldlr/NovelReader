@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import JSZip from "jszip";
 import { initDb } from "../db/init";
 import { EditNovelModal, EditNovelPayload } from "./modals/library_edit_novel";
 
@@ -8,7 +9,7 @@ type Novel = {
   title: string;
   author: string | null;
   description: string | null;
-  cover_path: string | null;      // added to match edit modal
+  cover_path: string | null;
   lang_original: string | null;
   status: string | null;
   slug: string | null;
@@ -27,15 +28,16 @@ export default function NovelDetail() {
   const novelId = id;
   const [novel, setNovel] = useState<Novel | null>(null);
   const [chapters, setChapters] = useState<ChapterRow[]>([]);
-  const [msg, setMsg] = useState("loading…");
 
-  const [menuOpen, setMenuOpen] = useState<boolean>(false); // simple toggle for this page
+  const [menuOpen, setMenuOpen] = useState<boolean>(false);
+  const [addOpen, setAddOpen] = useState<boolean>(false); 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editing, setEditing] = useState<EditNovelPayload | null>(null);
 
   const did = useRef(false);
   const dbRef = useRef<any>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const txtRef = useRef<HTMLInputElement>(null);  
+  const epubRef = useRef<HTMLInputElement>(null);  
   const nav = useNavigate();
 
   useEffect(() => {
@@ -46,13 +48,11 @@ export default function NovelDetail() {
       dbRef.current = db;
       await loadNovel(db);
       await loadChapters(db);
-      setMsg("Ready");
-    })().catch(e => setMsg("DB error: " + String(e)));
+    })().catch(e => console.error("DB error: " + String(e)));
   }, [novelId]);
 
   async function loadNovel(db: any) {
     if (!novelId) {
-      setMsg("No novel id provided.");
       setNovel(null);
       return;
     }
@@ -72,64 +72,113 @@ export default function NovelDetail() {
     setChapters(ch as ChapterRow[]);
   }
 
-  function toggleMenu() {
-    setMenuOpen(v => !v);
-  }
+  function toggleMenu() { setMenuOpen(v => !v); }
 
-  function openFilePicker() {
-    fileRef.current?.click();
-  }
-
-  async function onPickFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // allow picking same file again later
-    if (!file || !dbRef.current) return;
-
-    const text = await readText(file);
-    const name = file.name.replace(/\.[^.]+$/, "");
+  // ======= ADD MENU ACTIONS =======
+  async function onAddEmpty() {
+    if (!dbRef.current || !novelId) return;
     try {
-      // get next seq
-      const maxRow = await dbRef.current.select(
-        "SELECT IFNULL(MAX(seq), 0) as m FROM chapters WHERE novel_id = ?;",
-        [novelId]
-      );
-      const nextSeq = (maxRow[0]?.m ?? 0) + 1;
-
-      // insert chapter
+      const nextSeq = await nextSeqForNovel();
+      const name = `Chapter ${nextSeq}`;
       await dbRef.current.execute(
         "INSERT INTO chapters (novel_id, seq, volume, display_title) VALUES (?,?,?,?)",
         [novelId, nextSeq, null, name]
       );
-
-      // fetch new chapter id
-      const chIdRow = await dbRef.current.select(
-        "SELECT id FROM chapters WHERE novel_id = ? AND seq = ? LIMIT 1;",
-        [novelId, nextSeq]
-      );
-      const chapterId = chIdRow[0]?.id as number;
-
-      // insert RAW variant
+      const chId = await getChapterIdBySeq(nextSeq);
+      // create empty RAW variant
       const lang = novel?.lang_original ?? "en";
       await dbRef.current.execute(
         "INSERT INTO chapter_variants (chapter_id, variant_type, lang, title, content, source_url, provider, model_name, is_primary) VALUES (?,?,?,?,?,?,?,?,?)",
-        [chapterId, "RAW", lang, name, text, null, null, null, 0]
+        [chId, "RAW", lang, name, "", null, null, null, 0]
       );
-
       await loadChapters(dbRef.current);
-      nav(`/novel/${novelId}/chapter/${chapterId}`);
-    } catch (err) {
-      setMsg("Import error: " + String(err));
+      nav(`/novel/${novelId}/chapter/${chId}`);
+    } catch (e) {
+      console.error("Create error: " + String(e));
+    } finally {
+      setAddOpen(false);
     }
   }
 
+  function openTxtPicker() { txtRef.current?.click(); }
+  function openEpubPicker() { epubRef.current?.click(); }
+
+  async function onPickTxt(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !dbRef.current) return;
+
+    try {
+      const text = await readText(file);
+      const name = file.name.replace(/\.[^.]+$/, "");
+      const chId = await insertChapterWithContent(name, text);
+      await loadChapters(dbRef.current);
+      nav(`/novel/${novelId}/chapter/${chId}`);
+    } catch (err) {
+      console.error("Import error: " + String(err));
+    } finally {
+      setAddOpen(false);
+    }
+  }
+
+  async function onPickEpub(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !dbRef.current) return;
+
+    try {
+      const { chapters: parsed } = await parseEpub(file);
+
+      // Filter out “cover”, “toc”, empty-ish sections, etc.
+      const clean = parsed.filter(ch => {
+        const t = (ch.title || "").toLowerCase();
+        const badTitle = /(cover|table of contents|contents|toc|copyright|title page)/i.test(t);
+        const tooShort = (ch.text || "").replace(/\s+/g, " ").trim().length < 60; // heuristic
+        return !badTitle && !tooShort;
+      });
+
+      if (!clean.length) {
+        console.error("No readable chapters found in EPUB.");
+        return;
+      }
+
+      const startSeq = await nextSeqForNovel();
+      let seq = startSeq;
+      const lang = novel?.lang_original ?? "en";
+
+      for (const ch of clean) {
+        const title = ch.title?.trim() || `Chapter ${seq}`;
+        await dbRef.current.execute(
+          "INSERT INTO chapters (novel_id, seq, volume, display_title) VALUES (?,?,?,?)",
+          [novelId, seq, null, title]
+        );
+        const chId = await getChapterIdBySeq(seq);
+        await dbRef.current.execute(
+          "INSERT INTO chapter_variants (chapter_id, variant_type, lang, title, content, source_url, provider, model_name, is_primary) VALUES (?,?,?,?,?,?,?,?,?)",
+          [chId, "RAW", lang, title, ch.text, null, "epub", null, 0]
+        );
+        seq++;
+      }
+
+      await loadChapters(dbRef.current);
+      console.log(`Imported ${clean.length} chapter(s).`);
+    } catch (err) {
+      console.error("EPUB error: " + String(err));
+    } finally {
+      setAddOpen(false);
+    }
+  }
+
+
+  // ======= DELETE / REMOVE =======
   async function deleteChapter(cid: number) {
     try {
       const db = dbRef.current ?? (await initDb());
       await db.execute("DELETE FROM chapters WHERE id = ?", [cid]);
       await loadChapters(db);
-      setMsg("Chapter deleted.");
+      console.log("Chapter deleted.");
     } catch (e) {
-      setMsg("Delete error: " + String(e));
+      console.error("Delete error: " + String(e));
     }
   }
 
@@ -137,13 +186,14 @@ export default function NovelDetail() {
     try {
       const db = dbRef.current ?? (await initDb());
       await db.execute("DELETE FROM novels WHERE id = ?", [nid]);
-      setMsg("Novel removed.");
+      console.log("Novel removed.");
       nav("/");
     } catch (e) {
-      setMsg("Remove error: " + String(e));
+      console.error("Remove error: " + String(e));
     }
   }
 
+  // ======= EDIT MODAL =======
   function openEditModal(n: Novel) {
     setEditing({
       id: n.id,
@@ -157,16 +207,11 @@ export default function NovelDetail() {
     setIsEditOpen(true);
     setMenuOpen(false);
   }
-
-  function closeEditModal() {
-    setIsEditOpen(false);
-    setEditing(null);
-  }
+  function closeEditModal() { setIsEditOpen(false); setEditing(null); }
 
   async function handleEditSubmit(data: EditNovelPayload) {
     const db = dbRef.current;
     if (!db) return;
-
     await db.execute(
       `UPDATE novels
        SET title = $1,
@@ -190,21 +235,88 @@ export default function NovelDetail() {
     await loadNovel(db);
   }
 
+  // ======== EPUB IMPORT ========
+  async function nextSeqForNovel() {
+    const maxRow = await dbRef.current.select(
+      "SELECT IFNULL(MAX(seq), 0) as m FROM chapters WHERE novel_id = ?;",
+      [novelId]
+    );
+    return (maxRow[0]?.m ?? 0) + 1;
+  }
+
+  async function getChapterIdBySeq(seq: number) {
+    const row = await dbRef.current.select(
+      "SELECT id FROM chapters WHERE novel_id = ? AND seq = ? LIMIT 1;",
+      [novelId, seq]
+    );
+    return row[0]?.id as number;
+  }
+
+  async function insertChapterWithContent(name: string, text: string) {
+    const nextSeq = await nextSeqForNovel();
+    await dbRef.current.execute(
+      "INSERT INTO chapters (novel_id, seq, volume, display_title) VALUES (?,?,?,?)",
+      [novelId, nextSeq, null, name]
+    );
+    const chId = await getChapterIdBySeq(nextSeq);
+    const lang = novel?.lang_original ?? "en";
+    await dbRef.current.execute(
+      "INSERT INTO chapter_variants (chapter_id, variant_type, lang, title, content, source_url, provider, model_name, is_primary) VALUES (?,?,?,?,?,?,?,?,?)",
+      [chId, "RAW", lang, name, text, null, null, null, 0]
+    );
+    return chId;
+  }
+
+  // ======= RENDER =======
   return (
     <div className="page">
       <header className="topbar">
         <h1>{novel ? novel.title : "Novel"}</h1>
-        <div className="actions">
-          <button className="btn" onClick={openFilePicker}>+ Add Chapter (TXT)</button>
+        <div className="actions" style={{ position: "relative" }}>
+          <button className="btn" onClick={() => setAddOpen(v => !v)}>
+            + Add Chapter
+          </button>
+
+          {/* Add menu */}
+          {addOpen && (
+            <div
+              style={{
+                position: "absolute",
+                top: "110%",
+                right: 0,
+                background: "rgba(0,0,0,0.8)",
+                border: "1px solid rgba(255,255,255,0.12)",
+                borderRadius: 10,
+                padding: 6,
+                display: "grid",
+                gap: 6,
+                zIndex: 3,
+                minWidth: 200
+              }}
+            >
+              <button className="library-menu-item" onClick={onAddEmpty}>Empty</button>
+              <button className="library-menu-item" onClick={openTxtPicker}>Import TXT</button>
+              <button className="library-menu-item" onClick={openEpubPicker}>Import EPUB</button>
+            </div>
+          )}
+
+          {/* Hidden pickers */}
           <input
-            ref={fileRef}
+            ref={txtRef}
             type="file"
             accept=".txt,text/plain"
             style={{ display: "none" }}
-            onChange={onPickFile}
+            onChange={onPickTxt}
           />
+          <input
+            ref={epubRef}
+            type="file"
+            accept=".epub,application/epub+zip"
+            style={{ display: "none" }}
+            onChange={onPickEpub}
+          />
+
           <Link to="/" className="btn btn-ghost">← Back</Link>
-          <span className="status">{msg}</span>
         </div>
       </header>
 
@@ -220,7 +332,6 @@ export default function NovelDetail() {
               <div className="cover-shine" />
               <span className="cover-text">{initials(novel.title)}</span>
 
-              {/* Page-local menu (names already namespaced) */}
               <div className="library-menu-container">
                 <button
                   className="library-menu-button"
@@ -268,7 +379,7 @@ export default function NovelDetail() {
             {chapters.length === 0 ? (
               <div className="empty small">
                 <p>No chapters yet.</p>
-                <p className="empty-sub">Use “Add Chapter (TXT)” to import.</p>
+                <p className="empty-sub">Use “Add Chapter” → Empty / TXT / EPUB.</p>
               </div>
             ) : (
               <ul className="chapter-list">
@@ -283,20 +394,12 @@ export default function NovelDetail() {
                         {c.display_title || `Chapter ${c.seq}`}
                       </span>
                     </Link>
-
-                    {/* Delete Button */}
-                    <button
-                      className="deleteButton"
-                      onClick={() => deleteChapter(c.id)}
-                    >
+                    <button className="deleteButton" onClick={() => deleteChapter(c.id)}>
                       <svg viewBox="0 0 448 512" className="deleteIcon">
-                        <path d="M135.2 17.7L128 32H32C14.3 32 0 
-                          46.3 0 64S14.3 96 32 96H416c17.7 0 
-                          32-14.3 32-32s-14.3-32-32-32H320l-7.2-14.3C307.4 
-                          6.8 296.3 0 284.2 0H163.8c-12.1 0-23.2 
-                          6.8-28.6 17.7zM416 128H32L53.2 467c1.6 
-                          25.3 22.6 45 47.9 45H346.9c25.3 0 
-                          46.3-19.7 47.9-45L416 128z"></path>
+                        <path d="M135.2 17.7L128 32H32C14.3 32 0 46.3 0 64S14.3 96 32 96H416c17.7 0 
+                          32-14.3 32-32s-14.3-32-32-32H320l-7.2-14.3C307.4 6.8 296.3 0 284.2 0H163.8c-12.1 0-23.2 
+                          6.8-28.6 17.7zM416 128H32L53.2 467c1.6 25.3 22.6 45 47.9 45H346.9c25.3 0 
+                          46.3-19.7 47.9-45L416 128z"/>
                       </svg>
                     </button>
                   </li>
@@ -305,7 +408,6 @@ export default function NovelDetail() {
             )}
           </section>
 
-          {/* Edit Novel Modal (reusing existing component) */}
           <EditNovelModal
             open={isEditOpen}
             initial={editing}
@@ -326,6 +428,7 @@ export default function NovelDetail() {
   );
 }
 
+/* ===================== Helpers ===================== */
 function initials(title: string) {
   const words = title.trim().split(/\s+/).slice(0, 2);
   return words.map(w => w[0]?.toUpperCase() ?? "").join("");
@@ -338,4 +441,110 @@ function readText(file: File): Promise<string> {
     fr.onload = () => res(String(fr.result ?? ""));
     fr.readAsText(file);
   });
+}
+
+function readArrayBuffer(file: File): Promise<ArrayBuffer> {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onerror = () => rej(fr.error);
+    fr.onload = () => res(fr.result as ArrayBuffer);
+    fr.readAsArrayBuffer(file);
+  });
+}
+
+type ParsedChapter = { href: string; title: string; text: string };
+
+async function parseEpub(file: File): Promise<{ chapters: ParsedChapter[] }> {
+  const zip = await JSZip.loadAsync(await readArrayBuffer(file));
+
+  // 1) OPF path
+  const container = await zip.file("META-INF/container.xml")?.async("text");
+  if (!container) throw new Error("Invalid EPUB: missing META-INF/container.xml");
+
+  const parser = new DOMParser();
+  const cdoc = parser.parseFromString(container, "application/xml");
+  const rootfile = cdoc.querySelector("rootfile")?.getAttribute("full-path");
+  if (!rootfile) throw new Error("Invalid EPUB: missing rootfile path");
+
+  // 2) OPF
+  const opfText = await zip.file(rootfile)?.async("text");
+  if (!opfText) throw new Error("Invalid EPUB: OPF not found");
+  const opf = parser.parseFromString(opfText, "application/xml");
+
+  // manifest + spine
+  const manifest = new Map<string, { href: string; type: string; props: string }>();
+  opf.querySelectorAll("manifest > item").forEach(it => {
+    const id = it.getAttribute("id") || "";
+    manifest.set(id, {
+      href: it.getAttribute("href") || "",
+      type: it.getAttribute("media-type") || "",
+      props: it.getAttribute("properties") || ""
+    });
+  });
+
+  const spineIds = Array.from(opf.querySelectorAll("spine > itemref"))
+    .map(n => n.getAttribute("idref") || "")
+    .filter(Boolean);
+
+  const basePath = rootfile.split("/").slice(0, -1).join("/");
+
+  const chapters: ParsedChapter[] = [];
+
+  for (const id of spineIds) {
+    const meta = manifest.get(id);
+    if (!meta) continue;
+
+    // Skip nav/NCX and non-html resources
+    const isNav = /\bnav\b/i.test(meta.props);
+    const isNcx = /application\/x-dtbncx\+xml/i.test(meta.type);
+    const isHtml = /x?html/i.test(meta.type) || /\.x?html?$/i.test(meta.href);
+    if (isNav || isNcx || !isHtml) continue;
+
+    const path = resolvePath(basePath, meta.href);
+    const htmlText = await zip.file(path)?.async("text");
+    if (!htmlText) continue;
+
+    // Preserve <br> as newlines before parsing
+    const htmlWithBreaks = htmlText.replace(/<br\s*\/?>/gi, "\n");
+
+    const doc = parser.parseFromString(htmlWithBreaks, "text/html");
+
+    const title =
+      doc.querySelector("h1,h2,h3,title")?.textContent?.trim() || "";
+
+    // Robust plain text with paragraph breaks
+    const text = htmlToText(doc);
+
+    chapters.push({ href: meta.href, title, text });
+  }
+
+  return { chapters };
+}
+
+function htmlToText(doc: Document) {
+  // Collect block elements and join with blank lines
+  const blocks = doc.body.querySelectorAll(
+    "h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,div,section,article,figure"
+  );
+  const lines = Array.from(blocks)
+    .map(el => (el.textContent || "").trim())
+    .filter(Boolean);
+
+  let text = lines.join("\n\n");
+
+  // Collapse excessive blank lines & trim
+  text = text.replace(/\n{3,}/g, "\n\n").trim();
+
+  return text;
+}
+
+function resolvePath(base: string, href: string) {
+  if (!base) return href;
+  const stack = base.split("/").filter(Boolean);
+  for (const seg of href.split("/")) {
+    if (!seg || seg === ".") continue;
+    if (seg === "..") stack.pop();
+    else stack.push(seg);
+  }
+  return stack.join("/");
 }

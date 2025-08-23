@@ -276,20 +276,24 @@ export default function ChapterEditor() {
 
               <label style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                 <span>Lang</span>
-                <input
-                  type="text"
+                <select
                   value={lang}
                   onChange={(e) => setLang(e.target.value)}
-                  placeholder="en"
-                  style={{ width: 90 }}
-                />
+                  style={{ width: 120 }}
+                >
+                  <option value="en">English</option>
+                  <option value="zh">Chinese</option>
+                  <option value="ko">Korean</option>
+                  <option value="ja">Japanese</option>
+                  <option value="es">Spanish</option>
+                </select>
               </label>
             </div>
 
             {/* Title input */}
             <input
               className="reader-title"
-              style={{ width: "100%", background: "transparent", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}
+              style={{ color: "white", width: "100%", background: "transparent", border: "0px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "10px 12px", marginBottom: 10 }}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Untitled chapter"
@@ -298,7 +302,7 @@ export default function ChapterEditor() {
             {/* Content editor */}
             <textarea
               className="editor-textarea"
-              style={{ width: "100%", minHeight: "60vh", resize: "vertical", background: "transparent", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "12px 14px", lineHeight: 1.6 }}
+              style={{ fontFamily: "ui-sans-serif", color: "white", width: "100%", minHeight: "60vh", resize: "vertical", background: "transparent", border: "0px solid rgba(255,255,255,0.12)", borderRadius: 8, padding: "12px 14px", lineHeight: 1.8 }}
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="Write or paste your chapter content here…"

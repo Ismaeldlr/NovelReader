@@ -13,6 +13,7 @@
     "android": "npm run -w mobile run-android"
   },
   "dependencies": {
-    "@novel/core": "^0.0.1"
+    "@novel/core": "^0.0.1",
+    "jszip": "^3.10.1"
   }
 }

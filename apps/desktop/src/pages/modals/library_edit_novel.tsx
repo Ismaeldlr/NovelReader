@@ -208,13 +208,17 @@ export function EditNovelModal({
 
               <div className="library-edit-form-row">
                 <label className="library-edit-label">Original Language</label>
-                <input
-                  className="library-edit-input"
-                  type="text"
-                  placeholder="e.g., zh-CN"
+                <select
                   value={langOriginal}
                   onChange={(e) => setLangOriginal(e.target.value)}
-                />
+                  className="library-edit-input"
+                >
+                  <option value="en">English</option>
+                  <option value="zh">Chinese</option>
+                  <option value="ko">Korean</option>
+                  <option value="ja">Japanese</option>
+                  <option value="es">Spanish</option>
+                </select>
               </div>
 
               <div className="library-edit-form-row">

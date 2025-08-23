@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { initDb } from "../db/init";
 
@@ -52,62 +52,65 @@ export default function Reader() {
     setCurrent(rows[0] ?? null);
   }
 
-  function openChapter(cid: number) {
-    nav(`/novel/${novelId}/chapter/${cid}`);
-    console.log("Opening chapter:", cid);
-    // Note: route change remounts; loadCurrent will run again
+  // --- prev/next pointers from the ordered list
+  const { prev, next } = useMemo(() => {
+    const idx = chapters.findIndex(c => c.id === chId);
+    return {
+      prev: idx > 0 ? chapters[idx - 1] : null,
+      next: idx >= 0 && idx < chapters.length - 1 ? chapters[idx + 1] : null,
+    };
+  }, [chapters, chId]);
+
+  function goPrev() {
+    if (prev) nav(`/novel/${novelId}/chapter/${prev.id}`);
+    window.scrollTo({ top: 0 });
   }
 
-  function deleteChapter(cid: number) {
-    (async () => {
-      const db = await initDb();
-      await db.execute("DELETE FROM chapters WHERE id = ?", [cid]);
-      await loadChapters(db);
-      setMsg("Chapter deleted.");
-    })().catch(e => setMsg("Delete error: " + String(e)));
+  function goNext() {
+    if (next) nav(`/novel/${novelId}/chapter/${next.id}`);
+  window.scrollTo({ top: 0  });
   }
 
   return (
     <div className="reader-layout">
-      <aside className="reader-sidebar">
-        <div className="reader-sidebar-header">
-          <Link to="/" className="btn btn-ghost small">← Library</Link>
-          <Link to={`/novel/${novelId}`} className="btn btn-ghost small">← Novel</Link>
-        </div>
-        <div className="chapter-scroll">
-          {chapters.map(c => (
-            <div key={c.id} className="chapter-item">
-              <button
-                className={`chapter-nav ${c.id === chId ? "active" : ""}`}
-                onClick={() => openChapter(c.id)}
-                title={c.display_title || `Chapter ${c.seq}`}
-              >
-                <span className="chip">#{c.seq}</span>
-                <span className="ellipsis">{c.display_title || `Chapter ${c.seq}`}</span>
-              </button>
-
-              {/* Delete Button */}
-              <button
-                className="deleteButton"
-                onClick={() => deleteChapter(c.id)}
-              >
-                <svg viewBox="0 0 448 512" className="deleteIcon">
-                  <path d="M135.2 17.7L128 32H32C14.3 32 0 
-                46.3 0 64S14.3 96 32 96H416c17.7 0 
-                32-14.3 32-32s-14.3-32-32-32H320l-7.2-14.3C307.4 
-                6.8 296.3 0 284.2 0H163.8c-12.1 0-23.2 
-                6.8-28.6 17.7zM416 128H32L53.2 467c1.6 
-                25.3 22.6 45 47.9 45H346.9c25.3 0 
-                46.3-19.7 47.9-45L416 128z"></path>
-                </svg>
-              </button>
-            </div>
-          ))}
-        </div>
-      </aside>
-
       <main className="reader-main">
         <div className="reader-status">{msg}</div>
+
+        {/* Sticky reader nav */}
+        <div className="reader-nav">
+          <button
+            className="pill-btn"
+            onClick={goPrev}
+            disabled={!prev}
+            aria-disabled={!prev}
+            title={prev ? (prev.display_title || `Chapter ${prev.seq}`) : "No previous chapter"}
+          >
+            <span className="pill-ico" aria-hidden>
+              {/* « */}
+              <svg width="16" height="16" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+            </span>
+            Back
+          </button>
+
+          <Link to={`/novel/${novelId}`} className="pill-btn center">
+            Chapters List
+          </Link>
+
+          <button
+            className="pill-btn"
+            onClick={goNext}
+            disabled={!next}
+            aria-disabled={!next}
+            title={next ? (next.display_title || `Chapter ${next.seq}`) : "No next chapter"}
+          >
+            Next
+            <span className="pill-ico" aria-hidden>
+              {/* » */}
+              <svg width="16" height="16" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+            </span>
+          </button>
+        </div>
+
         {!current ? (
           <div className="empty">
             <div className="empty-art" />
@@ -121,6 +124,41 @@ export default function Reader() {
             </div>
             <div className="reader-meta">Variant: {current.variant_type} • Lang: {current.lang}</div>
             <div className="reader-content">{current.content}</div>
+
+            {/* Sticky reader nav */}
+            <div className="reader-nav">
+              <button
+                className="pill-btn"
+                onClick={goPrev}
+                disabled={!prev}
+                aria-disabled={!prev}
+                title={prev ? (prev.display_title || `Chapter ${prev.seq}`) : "No previous chapter"}
+              >
+                <span className="pill-ico" aria-hidden>
+                  {/* « */}
+                  <svg width="16" height="16" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+                </span>
+                Back
+              </button>
+
+              <Link to={`/novel/${novelId}`} className="pill-btn center">
+                Chapters List
+              </Link>
+
+              <button
+                className="pill-btn"
+                onClick={goNext}
+                disabled={!next}
+                aria-disabled={!next}
+                title={next ? (next.display_title || `Chapter ${next.seq}`) : "No next chapter"}
+              >
+                Next
+                <span className="pill-ico" aria-hidden>
+                  {/* » */}
+                  <svg width="16" height="16" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+                </span>
+              </button>
+            </div>
           </article>
         )}
       </main>
