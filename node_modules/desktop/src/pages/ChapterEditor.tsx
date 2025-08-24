@@ -135,7 +135,7 @@ export default function ChapterEditor() {
     const ta = taRef.current;
     if (!ta) return;
     ta.style.height = "auto";
-    ta.style.height = ta.scrollHeight + "px";
+    ta.style.height = ta.scrollHeight + 240 + "px";
   }
   useEffect(() => { autoSizeTA(); }, []);
   useEffect(() => { autoSizeTA(); }, [content]);
@@ -231,7 +231,10 @@ export default function ChapterEditor() {
                   border: 0,
                   borderRadius: 8,
                   padding: "10px 12px",
-                  marginBottom: 10
+                  marginTop: 40,
+                  marginBottom: 30,
+                  outline: "none",
+                  boxShadow: "none",
                 }}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -247,7 +250,6 @@ export default function ChapterEditor() {
                   fontSize: 16,
                   color: "white",
                   width: "100%",
-                  height: "auto",
                   minHeight: "40vh",
                   resize: "none",         // no manual handle
                   overflow: "hidden",     // no inner scroll
@@ -255,7 +257,9 @@ export default function ChapterEditor() {
                   border: 0,
                   borderRadius: 8,
                   padding: "12px 14px",
-                  lineHeight: 1.8
+                  lineHeight: 1.8,
+                  outline: "none",
+                  boxShadow: "none",
                 }}
                 value={content}
                 onInput={autoSizeTA}

@@ -12,14 +12,14 @@ It aims to support multiple platforms (desktop and mobile) while keeping reading
 - **Language:** TypeScript & JavaScript
 
 ## Current Features
-- Nothing yet
-
-## Planned Features
 - Novel listing view with cover, title, author
 - Chapter navigation and reading interface
+- Import chapters from local files (txt or Epub)
+
+## Planned Features
 - Bookmark system to save reading position
 - Sync between desktop and mobile
 - Search and filtering for novels
-- Import novels from local files or online sources
+- Import novels from online sources
 - Multi-language support
 - Reading statistics and progress tracking
