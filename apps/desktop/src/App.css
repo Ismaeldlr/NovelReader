@@ -216,6 +216,11 @@ a.chapter-link{color:inherit;text-decoration:none}
 
 .pill-ico{ display: inline-grid; place-items: center; opacity: .9; }
 
+.editor-textarea{
+  outline: none;
+  border: none;
+  box-shadow: none;
+}
 
 /* =========================================================
    DELETE BUTTON (ICON + HOVER REVEAL)
@@ -351,6 +356,8 @@ select.library-edit-input:focus{
 
 /* ===== App shell spacing so fixed bar doesn't overlap content */
 .app-main{ padding-top:56px; }
+
+
 
 /* ===== Top bar (fixed, hide-on-scroll) */
 .topbar-fixed{

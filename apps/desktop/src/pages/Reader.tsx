@@ -11,7 +11,6 @@ export default function Reader() {
   const chId = Number(chapterId);
   const [chapters, setChapters] = useState<ChapterListItem[]>([]);
   const [current, setCurrent] = useState<ChapterVariant | null>(null);
-  const [msg, setMsg] = useState("loading…");
   const nav = useNavigate();
 
   useEffect(() => {
@@ -19,8 +18,7 @@ export default function Reader() {
       const db = await initDb();
       await loadChapters(db);
       await loadCurrent(db, chId);
-      setMsg("Ready");
-    })().catch(e => setMsg("DB error: " + String(e)));
+    })().catch(e => console.error("DB error: " + String(e)));
   }, [novelId, chId]);
 
   async function loadChapters(db: any) {
@@ -74,7 +72,6 @@ export default function Reader() {
   return (
     <div className="reader-layout">
       <main className="reader-main">
-        <div className="reader-status">{msg}</div>
 
         {/* Sticky reader nav */}
         <div className="reader-nav">
