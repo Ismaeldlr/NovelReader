@@ -4,7 +4,7 @@ import Library from "./pages/Library";
 import NovelDetail from "./pages/NovelDetail";
 import Reader from "./pages/Reader";
 import ChapterEditor from "./pages/ChapterEditor";
-import TopBar from "./pages/TopBar"; 
+import TopBar from "./pages/TopBar";
 import "./App.css";
 
 function AppLayout() {
@@ -18,6 +18,18 @@ function AppLayout() {
   );
 }
 
+// Placeholder simple - To be deleted
+function SearchPage() {
+  const params = new URLSearchParams(location.search);
+  const q = params.get("q") || "";
+  return (
+    <div className="page">
+      <h1>Search</h1>
+      <p className="status">Query: {q ? `"${q}"` : "(vacío)"} — próximamente.</p>
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <Routes>
@@ -26,8 +38,8 @@ export default function App() {
         <Route path="/novel/:id" element={<NovelDetail />} />
         <Route path="/novel/:id/chapter/:chapterId" element={<Reader />} />
         <Route path="/novel/:id/editor/:chapterId" element={<ChapterEditor />} />
-        {/* placeholder route for "Novels" */}
-        <Route path="/novels" element={<div style={{ padding: 24 }}>Coming soon…</div>} />
+        <Route path="/novels" element={<div className="page">Coming soon…</div>} />
+        <Route path="/search" element={<SearchPage />} />
       </Route>
     </Routes>
   );

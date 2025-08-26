@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
 import { initDb } from "../db/init";
 import { AddNovelModal } from "./modals/library_add_novel.tsx";
 import { EditNovelModal, EditNovelPayload } from "./modals/library_edit_novel";
@@ -12,41 +12,66 @@ type NovelRow = {
 };
 
 export default function Library() {
+  const [searchParams] = useSearchParams();
+  const q = (searchParams.get("q") || "").trim();
+
   const [novels, setNovels] = useState<NovelRow[]>([]);
-  const [msg, setMsg] = useState("starting…");
+  const [msg, setMsg] = useState("loading…");
   const [menuOpen, setMenuOpen] = useState<number | null>(null);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editing, setEditing] = useState<EditNovelPayload | null>(null);
 
-
-  const did = useRef(false);
   const dbRef = useRef<any>(null);
 
+  // Init DB once
   useEffect(() => {
-    if (did.current) return;
-    did.current = true;
-
+    let alive = true;
     (async () => {
       const db = await initDb();
+      if (!alive) return;
       dbRef.current = db;
-      await loadNovels(db);
+      await loadNovels(db, q);
+      setMsg(q ? `Resultados para "${q}"` : "Ready");
     })().catch(e => setMsg("DB error: " + String(e)));
-  }, []);
+    return () => { alive = false; };
+  }, []); // solo una vez
 
-  async function loadNovels(db: any) {
+  // Re-cargar cuando cambia q (y ya tenemos dbRef)
+  useEffect(() => {
+    (async () => {
+      if (!dbRef.current) return;
+      await loadNovels(dbRef.current, q);
+      setMsg(q ? `Resultados para "${q}"` : "Ready");
+    })().catch(e => setMsg("DB error: " + String(e)));
+  }, [q]);
+
+  async function loadNovels(db: any, query: string) {
+    if (!query) {
+      const rows = await db.select(
+        `SELECT id, title, author, description, cover_path, lang_original, status, slug, created_at, updated_at
+         FROM novels
+         ORDER BY updated_at DESC;`
+      );
+      setNovels(rows as NovelRow[]);
+      return;
+    }
+    const like = `%${query}%`;
     const rows = await db.select(
-      "SELECT id, title, author, description FROM novels ORDER BY id DESC;"
+      `SELECT id, title, author, description, cover_path, lang_original, status, slug, created_at, updated_at
+       FROM novels
+       WHERE title LIKE ? OR IFNULL(author,'') LIKE ? OR IFNULL(slug,'') LIKE ? OR IFNULL(description,'') LIKE ?
+       ORDER BY updated_at DESC;`,
+      [like, like, like, like]
     );
     setNovels(rows as NovelRow[]);
-    setMsg(`DB OK. novels count = ${rows.length}`);
   }
 
   async function removeNovel(id: number) {
     const db = dbRef.current;
     if (!db) return;
     await db.execute("DELETE FROM novels WHERE id = ?", [id]);
-    await loadNovels(db);
+    await loadNovels(db, q); // respeta el filtro actual
     setMenuOpen(null);
   }
 
@@ -54,19 +79,14 @@ export default function Library() {
     setMenuOpen(menuOpen === id ? null : id);
   }
 
-  function openAddModal() {
-    setIsAddOpen(true);
-  }
-  function closeAddModal() {
-    setIsAddOpen(false);
-  }
+  function openAddModal() { setIsAddOpen(true); }
+  function closeAddModal() { setIsAddOpen(false); }
 
-  // Modal submit handler: DB insert happens here, modal stays simple.
   async function handleAddNovelSubmit(data: {
-        title: string;
-        author?: string | null;
-        description?: string | null;
-      }) {
+    title: string;
+    author?: string | null;
+    description?: string | null;
+  }) {
     const db = dbRef.current;
     if (!db) return;
 
@@ -74,7 +94,7 @@ export default function Library() {
       "INSERT INTO novels (title, author, description) VALUES ($1, $2, $3)",
       [data.title.trim(), data.author?.trim() || null, data.description?.trim() || null]
     );
-    await loadNovels(db);
+    await loadNovels(db, q); // respeta el filtro actual
   }
 
   function openEditModal(n: any) {
@@ -94,20 +114,19 @@ export default function Library() {
     setEditing(null);
   }
 
-  // Submit handler for edit:
   async function handleEditSubmit(data: EditNovelPayload) {
     const db = dbRef.current;
     if (!db) return;
 
     await db.execute(
       `UPDATE novels
-     SET title = $1,
-         author = $2,
-         description = $3,
-         cover_path = $4,
-         lang_original = $5,
-         status = $6
-     WHERE id = $7`,
+       SET title = $1,
+           author = $2,
+           description = $3,
+           cover_path = $4,
+           lang_original = $5,
+           status = $6
+       WHERE id = $7`,
       [
         data.title.trim(),
         data.author ?? null,
@@ -118,7 +137,7 @@ export default function Library() {
         data.id
       ]
     );
-    await loadNovels(db);
+    await loadNovels(db, q); // respeta el filtro actual
   }
 
   return (
@@ -134,8 +153,8 @@ export default function Library() {
       {novels.length === 0 ? (
         <div className="empty">
           <div className="empty-art" />
-          <p>No novels yet.</p>
-          <p className="empty-sub">Click “Add Novel” to insert a new entry.</p>
+          <p>{q ? "No se encontraron novelas para tu búsqueda." : "No novels yet."}</p>
+          {q ? <p className="empty-sub">Prueba con otra búsqueda.</p> : <p className="empty-sub">Click “Add Novel” to insert a new entry.</p>}
         </div>
       ) : (
         <div className="library">
@@ -197,7 +216,6 @@ export default function Library() {
           await handleEditSubmit(payload);
           closeEditModal();
         }}
-        // Optional: use a fixed list of statuses
         statusOptions={[
           { value: "ongoing", label: "Ongoing" },
           { value: "completed", label: "Completed" },
