@@ -1,11 +1,48 @@
-rootProject.name = 'mobile'
-apply from: file("../node_modules/@react-native-community/cli-platform-android/native_modules.gradle"); applyNativeModulesSettingsGradle(settings)
-include ':app'
-includeBuild('../node_modules/react-native-gradle-plugin')
+// Removed unused import for GradleException
 
-if (settings.hasProperty("newArchEnabled") && settings.newArchEnabled == "true") {
-    include(":ReactAndroid")
-    project(":ReactAndroid").projectDir = file('../node_modules/react-native/ReactAndroid')
-    include(":ReactAndroid:hermes-engine")
-    project(":ReactAndroid:hermes-engine").projectDir = file('../node_modules/react-native/ReactAndroid/hermes-engine')
+pluginManagement {
+  repositories {
+    gradlePluginPortal()
+    mavenCentral()
+    google()
+    // Repos para RN cuando compila dependencias desde node_modules
+    maven { url("$rootDir/../../node_modules/react-native/android") }
+    maven { url("$rootDir/../node_modules/react-native/android") }
+  }
+
+  // Detecta node_modules en monorepo y registra el plugin de RN
+  def candidates = [
+    file("$rootDir/../../node_modules"),
+    file("$rootDir/../node_modules"),
+    file("$rootDir/../../../node_modules")
+  ]
+  def NODE_MODULES = candidates.find { it.exists() }
+  if (NODE_MODULES == null) {
+    throw new Exception("No se encontró 'node_modules'. Intenté: " + candidates)
+  }
+
+  // Hace disponible el plugin com.facebook.react sin usar classpath
+  includeBuild(new File(NODE_MODULES, "react-native-gradle-plugin"))
 }
+
+rootProject.name = "mobile"
+
+// Autolinking del RN CLI (busca el archivo en node_modules hoisted)
+def candidates = [
+  file("$rootDir/../../node_modules"),
+  file("$rootDir/../node_modules"),
+  file("$rootDir/../../../node_modules")
+]
+def NODE_MODULES = candidates.find { it.exists() }
+if (NODE_MODULES == null) {
+  throw new Exception("No se encontró 'node_modules'. Intenté: " + candidates)
+}
+
+def cliGradle = new File(NODE_MODULES, "@react-native-community/cli-platform-android/native_modules.gradle")
+if (!cliGradle.exists()) {
+    throw new Exception("No existe " + cliGradle + ". Instala @react-native-community/cli-platform-android o revisa la ruta.")
+}
+apply from: cliGradle
+applyNativeModulesSettingsGradle(settings)
+
+include(":app")

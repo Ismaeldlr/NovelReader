@@ -5,6 +5,7 @@ import NovelDetail from "./pages/NovelDetail";
 import Reader from "./pages/Reader";
 import ChapterEditor from "./pages/ChapterEditor";
 import TopBar from "./pages/TopBar";
+import RandomNovel from "./pages/RandomNovel";
 import "./App.css";
 
 function AppLayout() {
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="/novel/:id/editor/:chapterId" element={<ChapterEditor />} />
         <Route path="/novels" element={<div className="page">Coming soon…</div>} />
         <Route path="/search" element={<SearchPage />} />
+        <Route path="/random" element={<RandomNovel />} />
       </Route>
     </Routes>
   );

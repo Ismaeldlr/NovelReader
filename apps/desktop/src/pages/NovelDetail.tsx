@@ -270,7 +270,7 @@ export default function NovelDetail() {
   // ======= RENDER =======
   return (
     <div className="page">
-      <header className="topbar">
+      <header className="topbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1>{novel ? novel.title : "Novel"}</h1>
         <div className="actions" style={{ position: "relative" }}>
           <button className="btn" onClick={() => setAddOpen(v => !v)}>

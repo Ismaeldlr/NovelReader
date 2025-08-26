@@ -142,7 +142,7 @@ export default function Library() {
 
   return (
     <div className="page">
-      <header className="topbar">
+      <header className="topbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1>Library</h1>
         <div className="actions">
           <button className="btn" onClick={openAddModal}>+ Add Novel</button>
