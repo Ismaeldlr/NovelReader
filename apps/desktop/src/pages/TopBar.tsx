@@ -72,7 +72,7 @@ export default function TopBar() {
             onClick={() => setSidebarOpen(true)}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              <path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
           </button>
 
@@ -84,8 +84,8 @@ export default function TopBar() {
           {/* Search */}
           <form className="tb-search" onSubmit={handleSearchSubmit}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2"/>
-              <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" />
+              <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
             <input
               placeholder="Search..."
@@ -100,23 +100,23 @@ export default function TopBar() {
         <nav className="tb-right">
           <NavLink to="/" className="nav-link">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path d="M4 5h6v14H4zM14 5h6v14h-6z" stroke="currentColor" strokeWidth="2"/>
+              <path d="M4 5h6v14H4zM14 5h6v14h-6z" stroke="currentColor" strokeWidth="2" />
             </svg>
             <span>Library</span>
           </NavLink>
 
           <NavLink to="/novels" className="nav-link">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path d="M5 4h10l4 4v12H5z" stroke="currentColor" strokeWidth="2" fill="none"/>
-              <path d="M15 4v4h4" stroke="currentColor" strokeWidth="2"/>
+              <path d="M5 4h10l4 4v12H5z" stroke="currentColor" strokeWidth="2" fill="none" />
+              <path d="M15 4v4h4" stroke="currentColor" strokeWidth="2" />
             </svg>
             <span>Novels</span>
           </NavLink>
 
           <button className="icon-btn" aria-label="Notifications">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path d="M15 17H5l1-1v-4a6 6 0 1 1 12 0v4l1 1h-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-              <path d="M10 21a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              <path d="M15 17H5l1-1v-4a6 6 0 1 1 12 0v4l1 1h-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              <path d="M10 21a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
           </button>
         </nav>
@@ -128,30 +128,45 @@ export default function TopBar() {
         <div className="drawer-header">
           <span className="brand-text">Menu</span>
           <button className="icon-btn" aria-label="Close" onClick={() => setSidebarOpen(false)}>
-            <svg width="18" height="18" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
           </button>
         </div>
 
         <nav className="drawer-nav">
           <button className="drawer-link" onClick={() => go("/")}>
-            <svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 5h6v14H4zM14 5h6v14h-6z" stroke="currentColor" strokeWidth="2"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 5h6v14H4zM14 5h6v14h-6z" stroke="currentColor" strokeWidth="2" /></svg>
             <span>Home</span>
           </button>
           <button className="drawer-link" onClick={() => go("/")}>
-            <svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 5h6v14H4zM14 5h6v14h-6z" stroke="currentColor" strokeWidth="2"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 5h6v14H4zM14 5h6v14h-6z" stroke="currentColor" strokeWidth="2" /></svg>
             <span>Library</span>
           </button>
           <button className="drawer-link" onClick={() => go("/novels")}>
-            <svg width="18" height="18" viewBox="0 0 24 24"><path d="M5 4h10l4 4v12H5z" stroke="currentColor" strokeWidth="2" fill="none"/><path d="M15 4v4h4" stroke="currentColor" strokeWidth="2"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24"><path d="M5 4h10l4 4v12H5z" stroke="currentColor" strokeWidth="2" fill="none" /><path d="M15 4v4h4" stroke="currentColor" strokeWidth="2" /></svg>
             <span>Novels</span>
           </button>
           <button className="drawer-link" onClick={() => go("/finder")}>
-            <svg width="18" height="18" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" /><path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
             <span>Novel Finder</span>
           </button>
           <button className="drawer-link" onClick={() => go("/random")}>
             <svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 7h6l2 4 2-4h6M4 17h6l2-4 2 4h6" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" /></svg>
             <span>Random Novels</span>
+          </button>
+    
+          <button className="drawer-link" onClick={() => go("/transfer?mode=import")}>
+            <svg width="18" height="18" viewBox="0 0 24 24">
+              <path d="M12 3v12m0 0l-4-4m4 4l4-4" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M4 19h16" stroke="currentColor" strokeWidth="2" />
+            </svg>
+            <span>Import</span>
+          </button>
+          <button className="drawer-link" onClick={() => go("/transfer?mode=export")}>
+            <svg width="18" height="18" viewBox="0 0 24 24">
+              <path d="M12 21V9m0 0l-4 4m4-4l4 4" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M4 5h16" stroke="currentColor" strokeWidth="2" />
+            </svg>
+            <span>Export</span>
           </button>
         </nav>
 
@@ -172,7 +187,7 @@ export default function TopBar() {
               onClick={() => setTheme("light")}
               title="Light"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" fill="none"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" fill="none" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
               Light
             </button>
             <button
@@ -180,7 +195,7 @@ export default function TopBar() {
               onClick={() => setTheme("dark")}
               title="Dark"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" strokeWidth="2" fill="none"/></svg>
+              <svg width="16" height="16" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke="currentColor" strokeWidth="2" fill="none" /></svg>
               Dark
             </button>
           </div>
