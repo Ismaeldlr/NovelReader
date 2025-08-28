@@ -503,3 +503,192 @@ select.library-edit-input:focus{
   background: var(--surface-2); color: var(--text); cursor:pointer;
 }
 .mini-btn.active{ border-color: var(--chip-border); background: var(--chip-bg); }
+
+/* ============================
+   Cover Search Modal (polished)
+   ============================ */
+.cover-modal-overlay{
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(3px);
+  animation: coverFade .18s ease-out;
+}
+
+@keyframes coverFade {
+  from { opacity: 0 } to { opacity: 1 }
+}
+
+.cover-modal{
+  width: min(920px, 94vw);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--panel);
+  color: var(--text);
+  border: var(--border-strong);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.35);
+  padding: 16px;
+  transform-origin: 50% -10%;
+  animation: coverPop .18s ease-out;
+}
+
+@keyframes coverPop {
+  from { transform: scale(.98); opacity: .7 }
+  to   { transform: scale(1);   opacity: 1 }
+}
+
+/* Header */
+.cover-modal header{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: var(--border-strong);
+}
+.cover-modal header h2{
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: .3px;
+}
+.cover-modal header button{
+  height: 34px; width: 34px;
+  display: grid; place-items: center;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .08s ease;
+}
+.cover-modal header button:hover{
+  background: rgba(255,255,255,.08);
+  border-color: rgba(255,255,255,.18);
+}
+.cover-modal header button:active{ transform: translateY(1px); }
+
+/* Search row */
+.cover-modal form{
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  margin-top: 12px;
+}
+.cover-modal form input{
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+  padding: 0 12px;
+  outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.cover-modal form input::placeholder{ color: rgba(255,255,255,.45); }
+:root[data-theme="light"] .cover-modal form input::placeholder{ color: rgba(0,0,0,.45); }
+
+.cover-modal form input:focus{
+  border-color: rgba(59,130,246,.55);
+  box-shadow: 0 0 0 4px rgba(59,130,246,.15);
+  background: rgba(255,255,255,.06);
+}
+.cover-modal form button{
+  height: 40px;
+  padding: 0 16px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: linear-gradient(135deg, rgba(59,130,246,.18), rgba(59,130,246,.28));
+  color: var(--text);
+  font-weight: 700;
+  letter-spacing: .2px;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, transform .08s ease;
+}
+.cover-modal form button:hover{
+  background: linear-gradient(135deg, rgba(59,130,246,.28), rgba(59,130,246,.4));
+  border-color: rgba(59,130,246,.6);
+}
+.cover-modal form button:active{ transform: translateY(1px); }
+
+/* Loading text */
+.cover-modal .loading{
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* Results grid */
+.cover-grid{
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+@media (max-width: 520px){
+  .cover-grid{ grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+.cover-option{
+  position: relative;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.03);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform .08s ease, border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.cover-option:hover{
+  transform: translateY(-1px);
+  border-color: rgba(59,130,246,.5);
+  background: rgba(59,130,246,.08);
+  box-shadow: 0 8px 24px rgba(0,0,0,.25);
+}
+.cover-option:focus-visible{
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.45);
+}
+.cover-option img{
+  display: block;
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+}
+
+/* Small “select” hint on hover */
+.cover-option::after{
+  content: "Select";
+  position: absolute;
+  right: 8px; bottom: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 999px;
+  color: var(--text);
+  background: rgba(0,0,0,.35);
+  border: 1px solid rgba(255,255,255,.2);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity .15s ease, transform .15s ease;
+}
+.cover-option:hover::after{ opacity: 1; transform: translateY(0); }
+
+/* Light theme adjustments */
+:root[data-theme="light"] .cover-modal{
+  box-shadow: 0 18px 46px rgba(0,0,0,.12);
+}
+:root[data-theme="light"] .cover-modal header button,
+:root[data-theme="light"] .cover-modal form input,
+:root[data-theme="light"] .cover-modal form button,
+:root[data-theme="light"] .cover-option{
+  border-color: rgba(0,0,0,.12);
+  background: rgba(0,0,0,.03);
+}
+:root[data-theme="light"] .cover-option:hover{
+  background: rgba(59,130,246,.12);
+  border-color: rgba(59,130,246,.5);
+}

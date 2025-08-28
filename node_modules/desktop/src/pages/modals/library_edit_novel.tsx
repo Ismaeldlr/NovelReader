@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import CoverSearchModal from "./CoverSearchModal"; // <-- usa tu modal existente
 
-export type NovelStatus = string; // If you have a stricter type elsewhere, import and use that.
+export type NovelStatus = string;
 
 export type EditNovelPayload = {
   id: number;
@@ -8,17 +9,15 @@ export type EditNovelPayload = {
   author?: string | null;
   description?: string | null;
   cover_path?: string | null;
-  lang_original?: string | null;  // e.g., "zh-CN"
+  lang_original?: string | null;
   status?: NovelStatus | null;
 };
 
 type EditNovelModalProps = {
   open: boolean;
-  initial?: EditNovelPayload | null; // Prefills form
+  initial?: EditNovelPayload | null;
   onClose: () => void;
   onSubmit: (data: EditNovelPayload) => Promise<void> | void;
-
-  /** Optional: provide status options for a dropdown */
   statusOptions?: Array<{ value: NovelStatus; label: string }>;
 };
 
@@ -42,7 +41,10 @@ export function EditNovelModal({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Reset and prefill when opened
+  // estado del buscador de portadas
+  const [coverSearchOpen, setCoverSearchOpen] = useState(false);
+
+  // Reset + prefill al abrir
   useEffect(() => {
     if (!open) return;
     setError(null);
@@ -55,15 +57,20 @@ export function EditNovelModal({
     setCoverPath(initial?.cover_path ?? "");
     setLangOriginal(initial?.lang_original ?? "");
     setStatus(initial?.status ?? "");
+    setCoverSearchOpen(false);
   }, [open, initial]);
 
-  // Close on ESC and click outside
+  // Cerrar con ESC / click afuera (sin cerrar si está abierto CoverSearchModal)
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (coverSearchOpen) setCoverSearchOpen(false);
+        else onClose();
+      }
     };
     const onDown = (e: MouseEvent) => {
+      if (coverSearchOpen) return;
       if (modalRef.current && e.target instanceof Node && !modalRef.current.contains(e.target)) {
         onClose();
       }
@@ -74,19 +81,24 @@ export function EditNovelModal({
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("mousedown", onDown);
     };
-  }, [open, onClose]);
+  }, [open, onClose, coverSearchOpen]);
 
-  // Simple URL-ish check to decide whether to render a preview
+  // Mostrar preview sólo si parece URL/ruta válida
   const coverLooksLikeUrl = useMemo(() => {
     if (!coverPath) return false;
     try {
-      // Accept absolute URLs; for relative paths you can customize this
       new URL(coverPath);
       return true;
     } catch {
-      return /^\/|^\.\.?\//.test(coverPath); // allow /path or ./path
+      return /^\/|^\.\.?\//.test(coverPath);
     }
   }, [coverPath]);
+
+  // Query por defecto para el buscador (título + autor)
+  const defaultCoverQuery = useMemo(
+    () => [title.trim(), author.trim()].filter(Boolean).join(" ") || "novel cover",
+    [title, author]
+  );
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -98,14 +110,8 @@ export function EditNovelModal({
     }
 
     const t = title.trim();
-    if (!t) {
-      setError("Title is required.");
-      return;
-    }
-    if (t.length > 200) {
-      setError("Title is too long (max 200 chars).");
-      return;
-    }
+    if (!t) return setError("Title is required.");
+    if (t.length > 200) return setError("Title is too long (max 200 chars).");
 
     const a = author.trim();
     const d = description.trim();
@@ -113,18 +119,9 @@ export function EditNovelModal({
     const l = langOriginal.trim();
     const s = (status ?? "").toString().trim();
 
-    if (a.length > 200) {
-      setError("Author is too long (max 200 chars).");
-      return;
-    }
-    if (d.length > 5000) {
-      setError("Description is too long (max 5000 chars).");
-      return;
-    }
-    if (l && l.length > 20) {
-      setError("Language code looks too long.");
-      return;
-    }
+    if (a.length > 200) return setError("Author is too long (max 200 chars).");
+    if (d.length > 5000) return setError("Description is too long (max 5000 chars).");
+    if (l && l.length > 20) return setError("Language code looks too long.");
 
     try {
       setSubmitting(true);
@@ -137,7 +134,7 @@ export function EditNovelModal({
         lang_original: l || null,
         status: s ? (s as NovelStatus) : null
       });
-      // On success, the parent should close us.
+      // el padre debe cerrarnos en éxito
     } catch (err) {
       setSubmitting(false);
       setError("Failed to save changes: " + String(err));
@@ -172,12 +169,7 @@ export function EditNovelModal({
             <div className="library-edit-col">
               <div className="library-edit-form-row">
                 <label className="library-edit-label">ID</label>
-                <input
-                  className="library-edit-input"
-                  type="text"
-                  value={id ?? ""}
-                  readOnly
-                />
+                <input className="library-edit-input" type="text" value={id ?? ""} readOnly />
               </div>
 
               <div className="library-edit-form-row">
@@ -252,28 +244,41 @@ export function EditNovelModal({
             <div className="library-edit-col">
               <div className="library-edit-form-row">
                 <label className="library-edit-label">Cover (URL or path)</label>
-                <input
-                  className="library-edit-input"
-                  type="text"
-                  placeholder="https://example.com/cover.jpg"
-                  value={coverPath}
-                  onChange={(e) => setCoverPath(e.target.value)}
-                />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
+                  <input
+                    className="library-edit-input"
+                    type="text"
+                    placeholder="https://example.com/cover.jpg"
+                    value={coverPath}
+                    onChange={(e) => setCoverPath(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="library-edit-btn"
+                    onClick={() => setCoverSearchOpen(true)}
+                  >
+                    Search cover
+                  </button>
+                </div>
               </div>
 
               {coverLooksLikeUrl && (
-                <div className="library-edit-cover-preview">
+                <div
+                  className="library-edit-cover-preview"
+                  style={{ cursor: "pointer" }}
+                  onClick={() => setCoverSearchOpen(true)}
+                  title="Click to change cover"
+                >
                   <div className="library-edit-cover-frame">
                     <img
                       src={coverPath}
                       alt="Cover preview"
                       onError={(e) => {
-                        // hide the image if URL fails
                         (e.currentTarget as HTMLImageElement).style.display = "none";
                       }}
                     />
                   </div>
-                  <span className="library-edit-cover-note">Preview</span>
+                  <span className="library-edit-cover-note">Preview (click to change)</span>
                 </div>
               )}
 
@@ -301,16 +306,23 @@ export function EditNovelModal({
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              className="library-edit-btn primary"
-              disabled={submitting}
-            >
+            <button type="submit" className="library-edit-btn primary" disabled={submitting}>
               {submitting ? "Saving…" : "Save Changes"}
             </button>
           </div>
         </form>
       </div>
+
+      {/* Modal de búsqueda de portadas */}
+      <CoverSearchModal
+        open={coverSearchOpen}
+        initialQuery={defaultCoverQuery}
+        onClose={() => setCoverSearchOpen(false)}
+        onSelect={(url: string) => {
+          setCoverPath(url);
+          setCoverSearchOpen(false);
+        }}
+      />
     </div>
   );
 }

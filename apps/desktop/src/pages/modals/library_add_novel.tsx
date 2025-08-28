@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import CoverSearchModal from "./CoverSearchModal"; // 👈 importa tu modal real
 
-export type NovelStatus = string; // tighten if you have a union elsewhere
+export type NovelStatus = string;
 
 export type AddNovelPayload = {
   title: string;
   author?: string | null;
   description?: string | null;
   cover_path?: string | null;
-  lang_original?: string | null;  // e.g., "zh-CN"
+  lang_original?: string | null;
   status?: NovelStatus | null;
 };
 
@@ -15,8 +16,6 @@ type AddNovelModalProps = {
   open: boolean;
   onClose: () => void;
   onSubmit: (data: AddNovelPayload) => Promise<void> | void;
-
-  /** Optional: provide status options for a dropdown */
   statusOptions?: Array<{ value: NovelStatus; label: string }>;
 };
 
@@ -38,7 +37,9 @@ export function AddNovelModal({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Reset form when opened
+  // 👇 estado para abrir el modal de búsqueda
+  const [coverSearchOpen, setCoverSearchOpen] = useState(false);
+
   useEffect(() => {
     if (open) {
       setTitle("");
@@ -49,16 +50,23 @@ export function AddNovelModal({
       setStatus("");
       setError(null);
       setSubmitting(false);
+      setCoverSearchOpen(false);
     }
   }, [open]);
 
-  // ESC to close + click outside
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (coverSearchOpen) {
+          setCoverSearchOpen(false);
+        } else {
+          onClose();
+        }
+      }
     };
     const onDown = (e: MouseEvent) => {
+      if (coverSearchOpen) return; // Don't close Add modal if CoverSearchModal is open
       if (modalRef.current && e.target instanceof Node && !modalRef.current.contains(e.target)) {
         onClose();
       }
@@ -69,16 +77,15 @@ export function AddNovelModal({
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("mousedown", onDown);
     };
-  }, [open, onClose]);
+  }, [open, onClose, coverSearchOpen]);
 
-  // Simple URL-ish check to decide whether to render a preview
   const coverLooksLikeUrl = useMemo(() => {
     if (!coverPath) return false;
     try {
-      new URL(coverPath); // absolute URL OK
+      new URL(coverPath);
       return true;
     } catch {
-      return /^\/|^\.\.?\//.test(coverPath); // allow /path or ./path
+      return /^\/|^\.\.?\//.test(coverPath);
     }
   }, [coverPath]);
 
@@ -93,26 +100,10 @@ export function AddNovelModal({
     const l = langOriginal.trim();
     const s = (status ?? "").toString().trim();
 
-    if (!t) {
-      setError("Title is required.");
-      return;
-    }
-    if (t.length > 200) {
-      setError("Title is too long (max 200 chars).");
-      return;
-    }
-    if (a.length > 200) {
-      setError("Author is too long (max 200 chars).");
-      return;
-    }
-    if (d.length > 5000) {
-      setError("Description is too long (max 5000 chars).");
-      return;
-    }
-    if (l && l.length > 20) {
-      setError("Language code looks too long.");
-      return;
-    }
+    if (!t) return setError("Title is required.");
+    if (t.length > 200) return setError("Title too long.");
+    if (a.length > 200) return setError("Author too long.");
+    if (d.length > 5000) return setError("Description too long.");
 
     try {
       setSubmitting(true);
@@ -124,85 +115,66 @@ export function AddNovelModal({
         lang_original: l || null,
         status: s ? (s as NovelStatus) : null
       });
-      // parent closes on success
     } catch (err) {
       setSubmitting(false);
-      setError("Failed to save novel: " + String(err));
-      return;
+      return setError("Failed: " + String(err));
     }
   }
 
   if (!open) return null;
 
+  const defaultCoverQuery =
+    [title.trim(), author.trim()].filter(Boolean).join(" ") || "novel cover";
+
   return (
-    <div
-      className="library-add-modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="library-add-modal-title"
-    >
+    <div className="library-add-modal-overlay" role="dialog" aria-modal="true">
       <div className="library-add-modal" ref={modalRef}>
         <header className="library-add-modal-header">
-          <h2 id="library-add-modal-title">Add Novel</h2>
-          <button
-            className="library-add-modal-close"
-            aria-label="Close"
-            onClick={onClose}
-            disabled={submitting}
-          >
+          <h2>Add Novel</h2>
+          <button className="library-add-modal-close" onClick={onClose} disabled={submitting}>
             ×
           </button>
         </header>
 
-        {/* Keep structure the same: stacked rows, just added new inputs */}
         <form className="library-add-form" onSubmit={handleSubmit}>
+          {/* Title */}
           <div className="library-add-form-row">
-            <label htmlFor="add-title" className="library-add-label">
-              Title <span className="req">*</span>
-            </label>
+            <label className="library-add-label">Title *</label>
             <input
-              id="add-title"
               className="library-add-input"
-              type="text"
-              placeholder="e.g., Split Worlds: The Rise of the Martial Mage"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              autoFocus
               required
             />
           </div>
 
+          {/* Author */}
           <div className="library-add-form-row">
-            <label htmlFor="add-author" className="library-add-label">Author</label>
+            <label className="library-add-label">Author</label>
             <input
-              id="add-author"
               className="library-add-input"
-              type="text"
-              placeholder="e.g., Ismael de la Rosa"
               value={author}
               onChange={(e) => setAuthor(e.target.value)}
             />
           </div>
 
+          {/* Lang */}
           <div className="library-add-form-row">
-            <label htmlFor="add-lang" className="library-add-label">Original Language</label>
+            <label className="library-add-label">Original Language</label>
             <input
-              id="add-lang"
               className="library-add-input"
-              type="text"
-              placeholder="e.g., zh-CN"
               value={langOriginal}
               onChange={(e) => setLangOriginal(e.target.value)}
             />
           </div>
 
+          {/* Status */}
           <div className="library-add-form-row">
-            <label htmlFor="add-status" className="library-add-label">Status</label>
+            <label className="library-add-label">Status</label>
             {statusOptions?.length ? (
               <select
-                id="add-status"
                 className="library-add-input"
-                value={status ?? ""}
+                value={status}
                 onChange={(e) => setStatus(e.target.value)}
               >
                 <option value="">— Select —</option>
@@ -214,51 +186,53 @@ export function AddNovelModal({
               </select>
             ) : (
               <input
-                id="add-status"
                 className="library-add-input"
-                type="text"
-                placeholder="e.g., ongoing, completed, hiatus"
-                value={status ?? ""}
+                value={status}
                 onChange={(e) => setStatus(e.target.value)}
               />
             )}
           </div>
 
+          {/* Cover */}
           <div className="library-add-form-row">
-            <label htmlFor="add-cover" className="library-add-label">Cover (URL or path)</label>
-            <input
-              id="add-cover"
-              className="library-add-input"
-              type="text"
-              placeholder="https://example.com/cover.jpg"
-              value={coverPath}
-              onChange={(e) => setCoverPath(e.target.value)}
-            />
+            <label className="library-add-label">Cover</label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
+              <input
+                className="library-add-input"
+                value={coverPath}
+                onChange={(e) => setCoverPath(e.target.value)}
+                placeholder="https://example.com/cover.jpg"
+              />
+              <button
+                type="button"
+                className="library-add-btn"
+                onClick={() => setCoverSearchOpen(true)}
+              >
+                Search cover
+              </button>
+            </div>
           </div>
 
           {coverLooksLikeUrl && (
             <div className="library-add-form-row">
-              <div className="library-edit-cover-preview">
+              <div
+                className="library-edit-cover-preview"
+                style={{ cursor: "pointer" }}
+                onClick={() => setCoverSearchOpen(true)}
+              >
                 <div className="library-edit-cover-frame">
-                  <img
-                    src={coverPath}
-                    alt="Cover preview"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).style.display = "none";
-                    }}
-                  />
+                  <img src={coverPath} alt="Cover" />
                 </div>
-                <span className="library-edit-cover-note">Preview</span>
+                <span className="library-edit-cover-note">Preview (click to change)</span>
               </div>
             </div>
           )}
 
+          {/* Description */}
           <div className="library-add-form-row">
-            <label htmlFor="add-desc" className="library-add-label">Description</label>
+            <label className="library-add-label">Description</label>
             <textarea
-              id="add-desc"
               className="library-add-textarea"
-              placeholder="Brief synopsis, notes, or anything you want to remember."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={6}
@@ -268,24 +242,26 @@ export function AddNovelModal({
           {error && <p className="library-add-error">{error}</p>}
 
           <div className="library-add-actions">
-            <button
-              type="button"
-              className="library-add-btn ghost"
-              onClick={onClose}
-              disabled={submitting}
-            >
+            <button type="button" className="library-add-btn ghost" onClick={onClose}>
               Cancel
             </button>
-            <button
-              type="submit"
-              className="library-add-btn primary"
-              disabled={submitting}
-            >
+            <button type="submit" className="library-add-btn primary" disabled={submitting}>
               {submitting ? "Saving…" : "Add Novel"}
             </button>
           </div>
         </form>
       </div>
+
+      {/* 👇 aquí simplemente llamamos tu modal */}
+      <CoverSearchModal
+        open={coverSearchOpen}
+        initialQuery={defaultCoverQuery}
+        onClose={() => setCoverSearchOpen(false)}
+        onSelect={(url: string) => {
+          setCoverPath(url);
+          setCoverSearchOpen(false);
+        }}
+      />
     </div>
   );
 }

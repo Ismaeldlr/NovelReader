@@ -330,7 +330,17 @@ export default function NovelDetail() {
           <section className="detail-hero">
             <div className="cover lg" aria-hidden="true">
               <div className="cover-shine" />
-              <span className="cover-text">{initials(novel.title)}</span>
+              {novel.cover_path ? (
+                <img
+                  src={novel.cover_path}
+                  alt={novel.title}
+                  className="cover-img"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }}
+                  onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+              ) : (
+                <span className="cover-text">{initials(novel.title)}</span>
+              )}
 
               <div className="library-menu-container">
                 <button
