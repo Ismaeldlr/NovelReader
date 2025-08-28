@@ -9,6 +9,7 @@ type NovelRow = {
   title: string;
   author: string | null;
   description: string | null;
+  cover_path?: string | null;
 };
 
 export default function Library() {
@@ -163,7 +164,17 @@ export default function Library() {
               <Link to={`/novel/${n.id}`} className="card link-card" title={n.title}>
                 <div className="cover" aria-hidden="true">
                   <div className="cover-shine" />
-                  <span className="cover-text">{initials(n.title)}</span>
+                  {n.cover_path ? (
+                    <img
+                      src={n.cover_path}
+                      alt={n.title}
+                      className="cover-img"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }}
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                  ) : (
+                    <span className="cover-text">{initials(n.title)}</span>
+                  )}
                 </div>
                 <div className="meta">
                   <h2 className="title">{n.title}</h2>
