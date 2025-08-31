@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { View, Text, Pressable, StyleSheet, SafeAreaView } from "react-native";
 import { useTheme, createStyles } from "../src/theme";
 import Library from "./Library";
+import MoreScreen from "./MoreScreen";
 
 type TabKey = "Library" | "Updates" | "History" | "Browse" | "More";
 
@@ -14,6 +15,7 @@ export default function Index() {
   const Screen = useMemo(() => {
     switch (tab) {
       case "Library": return <Library />;
+      case "More": return <MoreScreen />;
       default: return <Placeholder title={tab} />;
     }
   }, [tab]);
