@@ -1,6 +1,7 @@
 // app/library.tsx
 import { useEffect, useRef, useState } from "react";
 import { View, Text, FlatList, Pressable, StyleSheet } from "react-native";
+import { useRouter } from "expo-router";
 import { useTheme, createStyles } from "../src/theme";
 import { initDb } from "../src/db";
 
@@ -14,6 +15,7 @@ export default function Library() {
   const [novels, setNovels] = useState<NovelRow[]>([]);
   const [msg, setMsg] = useState("Loading…");
   const dbRef = useRef<any>(null);
+  const router = useRouter();
 
   useEffect(() => {
     let alive = true;
@@ -59,17 +61,21 @@ export default function Library() {
           contentContainerStyle={{ paddingBottom: 24 }}
           ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
           renderItem={({ item }) => (
-            <View style={s.card}>
+            <Pressable
+              style={s.card}
+              onPress={() => router.push({ pathname: "/novel/[id]", params: { id: String(item.id) } })}
+              android_ripple={{ color: '#222' }}
+            >
               <View style={s.cover}><Text style={s.coverText}>{initials(item.title)}</Text></View>
               <View style={s.meta}>
                 <Text numberOfLines={1} style={s.title}>{item.title}</Text>
                 <Text numberOfLines={1} style={s.author}>{item.author || "Unknown author"}</Text>
                 {item.description ? <Text numberOfLines={2} style={s.desc}>{item.description}</Text> : null}
               </View>
-              <Pressable onPress={() => removeNovel(item.id)} style={s.menuBtn}>
+              <Pressable onPress={() => removeNovel(item.id)} style={s.menuBtn} onPressIn={e => e.stopPropagation()}>
                 <Text style={s.menuText}>⋮</Text>
               </Pressable>
-            </View>
+            </Pressable>
           )}
         />
       )}
@@ -85,8 +91,9 @@ function initials(title: string) {
 const styles = createStyles((t) => StyleSheet.create({
   container: { flex: 1 },
   header: {
-    paddingVertical: t.spacing(2),
+    paddingVertical: t.spacing(4),
     paddingHorizontal: t.spacing(1),
+    paddingBottom: t.spacing(10),
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -105,6 +112,7 @@ const styles = createStyles((t) => StyleSheet.create({
     gap: t.spacing(3),
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: t.colors.border,
+    marginBottom: t.spacing(2),
   },
   cover: {
     width: 56, height: 56, borderRadius: t.radius.md,
