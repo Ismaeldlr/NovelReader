@@ -110,7 +110,7 @@ export default function Reader() {
             </Pressable>
 
             <Link href={{ pathname: "/novel/[id]", params: { id: String(novelId) } }} asChild>
-              <Pressable style={[s.pill, s.pillCenter]}>
+              <Pressable style={s.pill}>
                 <Text style={s.pillTxt}>Chapters List</Text>
               </Pressable>
             </Link>
@@ -142,7 +142,7 @@ export default function Reader() {
             </Pressable>
 
             <Link href={{ pathname: "/novel/[id]", params: { id: String(novelId) } }} asChild>
-              <Pressable style={[s.pill, s.pillCenter]}>
+              <Pressable style={s.pill}>
                 <Text style={s.pillTxt}>Chapters List</Text>
               </Pressable>
             </Link>
