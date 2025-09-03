@@ -3,6 +3,16 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import JSZip from "jszip";
 import { initDb } from "../db/init";
 import { EditNovelModal, EditNovelPayload } from "./modals/library_edit_novel";
+import {
+  getContinueForNovel,
+  getRecentProgressInNovel,
+  getNovelProgressSummary,
+} from "../db/reading_progress";
+
+// --- Sub-pages ---
+import AboutTab from "./novelPages/AboutTab";
+import TocTab from "./novelPages/tocTab";
+import RecsTab from "./novelPages/recomendationsTab";
 
 type Novel = {
   id: number;
@@ -23,23 +33,58 @@ type ChapterRow = {
   display_title: string | null;
 };
 
+// Simple local tabs
+function Tabs({
+  tabs,
+  current,
+  onChange,
+}: {
+  tabs: { key: string; label: string; badge?: number | null }[];
+  current: string;
+  onChange: (key: string) => void;
+}) {
+  return (
+    <div className="tabs">
+      {tabs.map((t) => (
+        <button
+          key={t.key}
+          onClick={() => onChange(t.key)}
+          className={`tab ${current === t.key ? "active" : ""}`}
+          aria-current={current === t.key ? "page" : undefined}
+        >
+          {t.label}
+          {typeof t.badge === "number" ? (
+            <span className="tab-badge">{t.badge}</span>
+          ) : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function NovelDetail() {
   const { id } = useParams();
-  const novelId = id;
+  const novelId = id; // string | undefined (we'll Number() where needed)
   const [novel, setNovel] = useState<Novel | null>(null);
   const [chapters, setChapters] = useState<ChapterRow[]>([]);
 
+  // NEW: reading progress / continue
+  const [continueTo, setContinueTo] = useState<{ chapterId: number; pct: number } | null>(null);
+  const [progress, setProgress] = useState<{ totalChapters: number; maxReadSeq: number; percent: number } | null>(null);
+
   const [menuOpen, setMenuOpen] = useState<boolean>(false);
-  const [addOpen, setAddOpen] = useState<boolean>(false); 
+  const [addOpen, setAddOpen] = useState<boolean>(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [editing, setEditing] = useState<EditNovelPayload | null>(null);
+  const [tab, setTab] = useState<"about" | "toc" | "recs">("about");
 
   const did = useRef(false);
   const dbRef = useRef<any>(null);
-  const txtRef = useRef<HTMLInputElement>(null);  
-  const epubRef = useRef<HTMLInputElement>(null);  
+  const txtRef = useRef<HTMLInputElement>(null);
+  const epubRef = useRef<HTMLInputElement>(null);
   const nav = useNavigate();
 
+  // ------------ INIT: open DB + load novel/chapters ------------
   useEffect(() => {
     if (did.current) return;
     did.current = true;
@@ -50,6 +95,23 @@ export default function NovelDetail() {
       await loadChapters(db);
     })().catch(e => console.error("DB error: " + String(e)));
   }, [novelId]);
+
+  // ------------ Load continue pointer + progress summary ------------
+  useEffect(() => {
+    if (!novelId) return;
+    (async () => {
+      // Continue pointer (fast), fallback to most recent progress in this novel
+      const cont =
+        (await getContinueForNovel(Number(novelId))) ??
+        (await getRecentProgressInNovel(Number(novelId)));
+      setContinueTo(cont ? { chapterId: cont.chapter_id, pct: cont.position_pct } : null);
+
+      // Overall progress
+      const p = await getNovelProgressSummary(Number(novelId));
+      setProgress(p);
+    })().catch(console.error);
+    // Recompute when chapter count changes (e.g., import/delete)
+  }, [novelId, chapters.length]);
 
   async function loadNovel(db: any) {
     if (!novelId) {
@@ -72,9 +134,9 @@ export default function NovelDetail() {
     setChapters(ch as ChapterRow[]);
   }
 
-  function toggleMenu() { setMenuOpen(v => !v); }
+  function toggleMenu() { setMenuOpen((v) => !v); }
 
-  // ======= ADD MENU ACTIONS =======
+  // ------------ ADD MENU ACTIONS ------------
   async function onAddEmpty() {
     if (!dbRef.current || !novelId) return;
     try {
@@ -85,7 +147,6 @@ export default function NovelDetail() {
         [novelId, nextSeq, null, name]
       );
       const chId = await getChapterIdBySeq(nextSeq);
-      // create empty RAW variant
       const lang = novel?.lang_original ?? "en";
       await dbRef.current.execute(
         "INSERT INTO chapter_variants (chapter_id, variant_type, lang, title, content, source_url, provider, model_name, is_primary) VALUES (?,?,?,?,?,?,?,?,?)",
@@ -128,12 +189,10 @@ export default function NovelDetail() {
 
     try {
       const { chapters: parsed } = await parseEpub(file);
-
-      // Filter out “cover”, “toc”, empty-ish sections, etc.
-      const clean = parsed.filter(ch => {
+      const clean = parsed.filter((ch) => {
         const t = (ch.title || "").toLowerCase();
         const badTitle = /(cover|table of contents|contents|toc|copyright|title page)/i.test(t);
-        const tooShort = (ch.text || "").replace(/\s+/g, " ").trim().length < 60; // heuristic
+        const tooShort = (ch.text || "").replace(/\s+/g, " ").trim().length < 60;
         return !badTitle && !tooShort;
       });
 
@@ -169,8 +228,7 @@ export default function NovelDetail() {
     }
   }
 
-
-  // ======= DELETE / REMOVE =======
+  // ------------ DELETE / REMOVE ------------
   async function deleteChapter(cid: number) {
     try {
       const db = dbRef.current ?? (await initDb());
@@ -193,7 +251,7 @@ export default function NovelDetail() {
     }
   }
 
-  // ======= EDIT MODAL =======
+  // ------------ EDIT MODAL ------------
   function openEditModal(n: Novel) {
     setEditing({
       id: n.id,
@@ -202,7 +260,7 @@ export default function NovelDetail() {
       description: n.description ?? null,
       cover_path: n.cover_path ?? null,
       lang_original: n.lang_original ?? null,
-      status: n.status ?? null
+      status: n.status ?? null,
     });
     setIsEditOpen(true);
     setMenuOpen(false);
@@ -229,13 +287,13 @@ export default function NovelDetail() {
         data.cover_path ?? null,
         data.lang_original ?? null,
         data.status ?? null,
-        data.id
+        data.id,
       ]
     );
     await loadNovel(db);
   }
 
-  // ======== EPUB IMPORT ========
+  // ------------ EPUB HELPERS ------------
   async function nextSeqForNovel() {
     const maxRow = await dbRef.current.select(
       "SELECT IFNULL(MAX(seq), 0) as m FROM chapters WHERE novel_id = ?;",
@@ -267,54 +325,27 @@ export default function NovelDetail() {
     return chId;
   }
 
-  // ======= RENDER =======
+  // ------------ RENDER ------------
   return (
-    <div className="page">
-      <header className="topbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div className="page novel-detail">
+      <header
+        className="topbar"
+        style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+      >
         <h1>{novel ? novel.title : "Novel"}</h1>
         <div className="actions" style={{ position: "relative" }}>
-          <button className="btn" onClick={() => setAddOpen(v => !v)}>
-            + Add Chapter
-          </button>
+          <button className="btn" onClick={() => setAddOpen((v) => !v)}>+ Add Chapter</button>
 
-          {/* Add menu */}
           {addOpen && (
-            <div
-              style={{
-                position: "absolute",
-                top: "110%",
-                right: 0,
-                background: "rgba(0,0,0,0.8)",
-                border: "1px solid rgba(255,255,255,0.12)",
-                borderRadius: 10,
-                padding: 6,
-                display: "grid",
-                gap: 6,
-                zIndex: 3,
-                minWidth: 200
-              }}
-            >
+            <div className="menu-pop">
               <button className="library-menu-item" onClick={onAddEmpty}>Empty</button>
               <button className="library-menu-item" onClick={openTxtPicker}>Import TXT</button>
               <button className="library-menu-item" onClick={openEpubPicker}>Import EPUB</button>
             </div>
           )}
 
-          {/* Hidden pickers */}
-          <input
-            ref={txtRef}
-            type="file"
-            accept=".txt,text/plain"
-            style={{ display: "none" }}
-            onChange={onPickTxt}
-          />
-          <input
-            ref={epubRef}
-            type="file"
-            accept=".epub,application/epub+zip"
-            style={{ display: "none" }}
-            onChange={onPickEpub}
-          />
+          <input ref={txtRef} type="file" accept=".txt,text/plain" style={{ display: "none" }} onChange={onPickTxt} />
+          <input ref={epubRef} type="file" accept=".epub,application/epub+zip" style={{ display: "none" }} onChange={onPickEpub} />
 
           <Link to="/" className="btn btn-ghost">← Back</Link>
         </div>
@@ -327,7 +358,8 @@ export default function NovelDetail() {
         </div>
       ) : (
         <>
-          <section className="detail-hero">
+          {/* --------- HERO --------- */}
+          <section className="detail-hero fancy">
             <div className="cover lg" aria-hidden="true">
               <div className="cover-shine" />
               {novel.cover_path ? (
@@ -335,86 +367,105 @@ export default function NovelDetail() {
                   src={novel.cover_path}
                   alt={novel.title}
                   className="cover-img"
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }}
-                  onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit" }}
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                 />
               ) : (
                 <span className="cover-text">{initials(novel.title)}</span>
               )}
 
               <div className="library-menu-container">
-                <button
-                  className="library-menu-button"
-                  onClick={toggleMenu}
-                  aria-expanded={menuOpen}
-                  aria-haspopup="menu"
-                >
-                  ⋮
-                </button>
+                <button className="library-menu-button" onClick={toggleMenu} aria-expanded={menuOpen} aria-haspopup="menu">⋮</button>
                 {menuOpen && (
                   <div className="library-menu" role="menu">
-                    <button
-                      className="library-menu-item"
-                      onClick={() => openEditModal(novel)}
-                      role="menuitem"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="library-menu-item"
-                      onClick={() => removeNovel(novel.id)}
-                      role="menuitem"
-                    >
-                      Remove from Library
-                    </button>
+                    <button className="library-menu-item" onClick={() => openEditModal(novel)} role="menuitem">Edit</button>
+                    <button className="library-menu-item" onClick={() => removeNovel(novel.id)} role="menuitem">Remove from Library</button>
                   </div>
                 )}
               </div>
             </div>
 
             <div className="detail-meta">
-              <h2 className="title">{novel.title}</h2>
-              <p className="author">{novel.author || "Unknown author"}</p>
-              {novel.description && <p className="desc">{novel.description}</p>}
-              <div className="kv">
-                <span>Original Lang:</span><b>{novel.lang_original || "—"}</b>
-                <span>Status:</span><b>{novel.status || "—"}</b>
-                <span>Slug:</span><b>{novel.slug || "—"}</b>
+              <div className="title-row">
+                <h2 className="title">{novel.title}</h2>
+                <span className="status-chip">{novel.status || "—"}</span>
               </div>
+              <p className="author">{novel.author || "Unknown author"}</p>
+
+              {progress && (
+                <div className="read-progress">
+                  <div className="read-progress-top">
+                    <span>Progress</span>
+                    <b>
+                      {progress.maxReadSeq}/{progress.totalChapters} ({Math.round(progress.percent * 100)}%)
+                    </b>
+                  </div>
+                  <div className="progress">
+                    <div className="progress-bar" style={{ width: `${progress.percent * 100}%` }} />
+                  </div>
+                </div>
+              )}
+
+              <div className="meta-kpis">
+                <div className="kpi"><span className="kpi-top">Chapters</span><b>{chapters.length}</b></div>
+                <div className="kpi"><span className="kpi-top">Original Lang</span><b>{novel.lang_original || "—"}</b></div>
+                <div className="kpi"><span className="kpi-top">Slug</span><b>{novel.slug || "—"}</b></div>
+                <div className="kpi"><span className="kpi-top">Updated</span><b>{new Date((novel.updated_at ?? 0) * 1000).toLocaleDateString()}</b></div>
+              </div>
+
+              {continueTo && (
+                <div style={{ marginTop: 10 }}>
+                  <Link
+                    className="pill-btn"
+                    to={`/novel/${novel.id}/chapter/${continueTo.chapterId}`}
+                    title="Continue reading"
+                  >
+                    ▶ Continue reading
+                  </Link>
+                </div>
+              )}
             </div>
           </section>
 
-          <section className="chapters">
-            <h3>Chapters</h3>
-            {chapters.length === 0 ? (
-              <div className="empty small">
-                <p>No chapters yet.</p>
-                <p className="empty-sub">Use “Add Chapter” → Empty / TXT / EPUB.</p>
-              </div>
-            ) : (
-              <ul className="chapter-list">
-                {chapters.map(c => (
-                  <li key={c.id} className="chapter-item">
-                    <Link
-                      to={`/novel/${novelId}/chapter/${c.id}`}
-                      className="chapter-link"
-                    >
-                      <span className="chip">#{c.seq}</span>
-                      <span className="chapter-title">
-                        {c.display_title || `Chapter ${c.seq}`}
-                      </span>
-                    </Link>
-                    <button className="deleteButton" onClick={() => deleteChapter(c.id)}>
-                      <svg viewBox="0 0 448 512" className="deleteIcon">
-                        <path d="M135.2 17.7L128 32H32C14.3 32 0 46.3 0 64S14.3 96 32 96H416c17.7 0 
-                          32-14.3 32-32s-14.3-32-32-32H320l-7.2-14.3C307.4 6.8 296.3 0 284.2 0H163.8c-12.1 0-23.2 
-                          6.8-28.6 17.7zM416 128H32L53.2 467c1.6 25.3 22.6 45 47.9 45H346.9c25.3 0 
-                          46.3-19.7 47.9-45L416 128z"/>
-                      </svg>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+          {/* --------- TABS --------- */}
+          <Tabs
+            tabs={[
+              { key: "about", label: "About" },
+              { key: "toc", label: "Table of Contents", badge: chapters.length },
+              { key: "recs", label: "Recommendations" },
+            ]}
+            current={tab}
+            onChange={(k) => setTab(k as typeof tab)}
+          />
+
+          {/* --------- TAB CONTENT --------- */}
+          <section className="tab-body">
+            {tab === "about" && (
+              <AboutTab
+                description={novel.description}
+                author={novel.author}
+                lang={novel.lang_original}
+                status={novel.status}
+                slug={novel.slug}
+                createdAt={novel.created_at}
+                updatedAt={novel.updated_at}
+              />
+            )}
+
+            {tab === "toc" && (
+              <TocTab
+                novelId={String(novel.id)}
+                chapters={chapters}
+                onDeleteChapter={deleteChapter}
+              />
+            )}
+
+            {tab === "recs" && (
+              <RecsTab
+                author={novel.author}
+                excludeId={novel.id}
+                onOpenEdit={() => openEditModal(novel)}
+              />
             )}
           </section>
 
@@ -429,7 +480,7 @@ export default function NovelDetail() {
             statusOptions={[
               { value: "ongoing", label: "Ongoing" },
               { value: "completed", label: "Completed" },
-              { value: "hiatus", label: "Hiatus" }
+              { value: "hiatus", label: "Hiatus" },
             ]}
           />
         </>
@@ -441,7 +492,7 @@ export default function NovelDetail() {
 /* ===================== Helpers ===================== */
 function initials(title: string) {
   const words = title.trim().split(/\s+/).slice(0, 2);
-  return words.map(w => w[0]?.toUpperCase() ?? "").join("");
+  return words.map((w) => w[0]?.toUpperCase() ?? "").join("");
 }
 
 function readText(file: File): Promise<string> {
@@ -452,7 +503,6 @@ function readText(file: File): Promise<string> {
     fr.readAsText(file);
   });
 }
-
 function readArrayBuffer(file: File): Promise<ArrayBuffer> {
   return new Promise((res, rej) => {
     const fr = new FileReader();
@@ -463,11 +513,8 @@ function readArrayBuffer(file: File): Promise<ArrayBuffer> {
 }
 
 type ParsedChapter = { href: string; title: string; text: string };
-
 async function parseEpub(file: File): Promise<{ chapters: ParsedChapter[] }> {
   const zip = await JSZip.loadAsync(await readArrayBuffer(file));
-
-  // 1) OPF path
   const container = await zip.file("META-INF/container.xml")?.async("text");
   if (!container) throw new Error("Invalid EPUB: missing META-INF/container.xml");
 
@@ -476,35 +523,31 @@ async function parseEpub(file: File): Promise<{ chapters: ParsedChapter[] }> {
   const rootfile = cdoc.querySelector("rootfile")?.getAttribute("full-path");
   if (!rootfile) throw new Error("Invalid EPUB: missing rootfile path");
 
-  // 2) OPF
   const opfText = await zip.file(rootfile)?.async("text");
   if (!opfText) throw new Error("Invalid EPUB: OPF not found");
   const opf = parser.parseFromString(opfText, "application/xml");
 
-  // manifest + spine
   const manifest = new Map<string, { href: string; type: string; props: string }>();
-  opf.querySelectorAll("manifest > item").forEach(it => {
+  opf.querySelectorAll("manifest > item").forEach((it) => {
     const id = it.getAttribute("id") || "";
     manifest.set(id, {
       href: it.getAttribute("href") || "",
       type: it.getAttribute("media-type") || "",
-      props: it.getAttribute("properties") || ""
+      props: it.getAttribute("properties") || "",
     });
   });
 
   const spineIds = Array.from(opf.querySelectorAll("spine > itemref"))
-    .map(n => n.getAttribute("idref") || "")
+    .map((n) => n.getAttribute("idref") || "")
     .filter(Boolean);
 
   const basePath = rootfile.split("/").slice(0, -1).join("/");
 
   const chapters: ParsedChapter[] = [];
-
   for (const id of spineIds) {
     const meta = manifest.get(id);
     if (!meta) continue;
 
-    // Skip nav/NCX and non-html resources
     const isNav = /\bnav\b/i.test(meta.props);
     const isNcx = /application\/x-dtbncx\+xml/i.test(meta.type);
     const isHtml = /x?html/i.test(meta.type) || /\.x?html?$/i.test(meta.href);
@@ -514,40 +557,22 @@ async function parseEpub(file: File): Promise<{ chapters: ParsedChapter[] }> {
     const htmlText = await zip.file(path)?.async("text");
     if (!htmlText) continue;
 
-    // Preserve <br> as newlines before parsing
     const htmlWithBreaks = htmlText.replace(/<br\s*\/?>/gi, "\n");
-
     const doc = parser.parseFromString(htmlWithBreaks, "text/html");
-
-    const title =
-      doc.querySelector("h1,h2,h3,title")?.textContent?.trim() || "";
-
-    // Robust plain text with paragraph breaks
+    const title = doc.querySelector("h1,h2,h3,title")?.textContent?.trim() || "";
     const text = htmlToText(doc);
-
     chapters.push({ href: meta.href, title, text });
   }
-
   return { chapters };
 }
 
 function htmlToText(doc: Document) {
-  // Collect block elements and join with blank lines
-  const blocks = doc.body.querySelectorAll(
-    "h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,div,section,article,figure"
-  );
-  const lines = Array.from(blocks)
-    .map(el => (el.textContent || "").trim())
-    .filter(Boolean);
-
+  const blocks = doc.body.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,div,section,article,figure");
+  const lines = Array.from(blocks).map((el) => (el.textContent || "").trim()).filter(Boolean);
   let text = lines.join("\n\n");
-
-  // Collapse excessive blank lines & trim
   text = text.replace(/\n{3,}/g, "\n\n").trim();
-
   return text;
 }
-
 function resolvePath(base: string, href: string) {
   if (!base) return href;
   const stack = base.split("/").filter(Boolean);
