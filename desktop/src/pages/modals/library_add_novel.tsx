@@ -187,6 +187,7 @@ export function AddNovelModal({
               <option value="ongoing">Ongoing</option>
               <option value="completed">Completed</option>
               <option value="hiatus">Hiatus</option>
+              <option value="dropped">Dropped</option>
             </select>
           </div>
 

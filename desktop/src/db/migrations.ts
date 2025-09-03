@@ -148,7 +148,160 @@ export const MIGRATIONS: string[] = [
         JOIN chapters  c2 ON c2.id = b2.chapter_id
        GROUP BY nv, dev
     ) last ON last.nv = c.novel_id AND last.dev = b.device_id AND last.maxu = b.updated_at;
+  `,
+  // --------------------------- v3 (genres, tags, folders, stats) ---------------------------
   `
+  PRAGMA foreign_keys = ON;
+
+  -- 1) Extend novels with release_status (text enum: released | on_voting | draft, etc.)
+  ALTER TABLE novels ADD COLUMN release_status TEXT;
+
+  -- 2) Tags (freeform)
+  CREATE TABLE IF NOT EXISTS tags (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    slug       TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+  CREATE TABLE IF NOT EXISTS novel_tags (
+    novel_id   INTEGER NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    tag_id     INTEGER NOT NULL REFERENCES tags(id)   ON DELETE CASCADE,
+    PRIMARY KEY (novel_id, tag_id)
+  );
+
+  -- 3) Genres (curated list)
+  CREATE TABLE IF NOT EXISTS genres (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    slug       TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+  CREATE TABLE IF NOT EXISTS novel_genres (
+    novel_id   INTEGER NOT NULL REFERENCES novels(id)  ON DELETE CASCADE,
+    genre_id   INTEGER NOT NULL REFERENCES genres(id)  ON DELETE CASCADE,
+    PRIMARY KEY (novel_id, genre_id)
+  );
+
+  -- 4) Library folders (user-defined groupings)
+  CREATE TABLE IF NOT EXISTS folders (
+    id         INTEGER PRIMARY KEY,
+    name       TEXT NOT NULL UNIQUE,
+    color      TEXT,
+    sort       INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+  CREATE TABLE IF NOT EXISTS novel_folders (
+    novel_id   INTEGER NOT NULL REFERENCES novels(id)  ON DELETE CASCADE,
+    folder_id  INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+    PRIMARY KEY (novel_id, folder_id)
+  );
+
+  -- 5) Novel stats (fast min-chapters filter)
+  CREATE TABLE IF NOT EXISTS novel_stats (
+    novel_id       INTEGER PRIMARY KEY REFERENCES novels(id) ON DELETE CASCADE,
+    chapter_count  INTEGER NOT NULL DEFAULT 0,
+    updated_at     INTEGER NOT NULL DEFAULT (unixepoch())
+  );
+
+  -- Backfill counts once
+  INSERT OR REPLACE INTO novel_stats (novel_id, chapter_count, updated_at)
+  SELECT n.id, IFNULL(c.cnt, 0), unixepoch()
+  FROM novels n
+  LEFT JOIN (SELECT novel_id, COUNT(*) AS cnt FROM chapters GROUP BY novel_id) c
+        ON c.novel_id = n.id;
+
+  -- Keep chapter_count in sync
+  CREATE TRIGGER IF NOT EXISTS chapters_ai_stats AFTER INSERT ON chapters
+  BEGIN
+    INSERT INTO novel_stats (novel_id, chapter_count, updated_at)
+    VALUES (NEW.novel_id, 1, unixepoch())
+    ON CONFLICT(novel_id) DO UPDATE SET
+      chapter_count = chapter_count + 1,
+      updated_at    = unixepoch();
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS chapters_ad_stats AFTER DELETE ON chapters
+  BEGIN
+    UPDATE novel_stats
+      SET chapter_count = MAX(0, chapter_count - 1),
+          updated_at    = unixepoch()
+    WHERE novel_id = OLD.novel_id;
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS chapters_au_stats AFTER UPDATE OF novel_id ON chapters
+  BEGIN
+    UPDATE novel_stats
+      SET chapter_count = MAX(0, chapter_count - 1),
+          updated_at    = unixepoch()
+    WHERE novel_id = OLD.novel_id;
+
+    INSERT INTO novel_stats (novel_id, chapter_count, updated_at)
+    VALUES (NEW.novel_id, 1, unixepoch())
+    ON CONFLICT(novel_id) DO UPDATE SET
+      chapter_count = chapter_count + 1,
+      updated_at    = unixepoch();
+  END;
+
+  -- 6) Indexes to make the finder snappy
+  CREATE INDEX IF NOT EXISTS idx_novels_title           ON novels(title);
+  CREATE INDEX IF NOT EXISTS idx_novels_author          ON novels(author);
+  CREATE INDEX IF NOT EXISTS idx_novels_status          ON novels(status);
+  CREATE INDEX IF NOT EXISTS idx_novels_release_status  ON novels(release_status);
+  CREATE INDEX IF NOT EXISTS idx_novels_created_at      ON novels(created_at);
+
+  CREATE INDEX IF NOT EXISTS idx_tags_name              ON tags(name);
+  CREATE INDEX IF NOT EXISTS idx_genres_name            ON genres(name);
+  CREATE INDEX IF NOT EXISTS idx_novel_tags_tag         ON novel_tags(tag_id);
+  CREATE INDEX IF NOT EXISTS idx_novel_genres_genre     ON novel_genres(genre_id);
+  CREATE INDEX IF NOT EXISTS idx_folders_name           ON folders(name);
+  CREATE INDEX IF NOT EXISTS idx_novel_folders_folder   ON novel_folders(folder_id);
+
+  -- 7) Seed common genres (idempotent)
+  INSERT OR IGNORE INTO genres (name, slug) VALUES
+  ('Action','action'),
+  ('Adventure','adventure'),
+  ('Drama','drama'),
+  ('Erciyuan','erciyuan'),
+  ('Fantasy','fantasy'),
+  ('Gender-Bender','gender-bender'),
+  ('Harem','harem'),
+  ('Historical','historical'),
+  ('Josei','josei'),
+  ('Mature','mature'),
+  ('Military','military'),
+  ('Psychological','psychological'),
+  ('School-Life','school-life'),
+  ('Seinen','seinen'),
+  ('Shoujo','shoujo'),
+  ('Shoujo-Ai','shoujo-ai'),
+  ('Shounen','shounen'),
+  ('Shounen-Ai','shounen-ai'),
+  ('Smut','smut'),
+  ('Supernatural','supernatural'),
+  ('Urban-Life','urban-life'),
+  ('Xianxia','xianxia'),
+  ('Yaoi','yaoi'),
+  ('Adult','adult'),
+  ('Comedy','comedy'),
+  ('Ecchi','ecchi'),
+  ('Fan-Fiction','fan-fiction'),
+  ('Game','game'),
+  ('Horror','horror'),
+  ('Martial-Arts','martial-arts'),
+  ('Mecha','mecha'),
+  ('Mystery','mystery'),
+  ('Romance','romance'),
+  ('Sci-Fi','sci-fi'),
+  ('Slice-Of-Life','slice-of-life'),
+  ('Sports','sports'),
+  ('Tragedy','tragedy'),
+  ('Wuxia','wuxia'),
+  ('Xuanhuan','xuanhuan'),
+  ('Yuri','yuri');
+  `
+
 ];
 
 export async function applyMigrations(db: SqlDb): Promise<void> {
@@ -206,7 +359,7 @@ export async function applyMigrations(db: SqlDb): Promise<void> {
       await db.execute(`PRAGMA user_version = ${v + 1};`);
       await db.execute("COMMIT;");
     } catch (e) {
-      try { await db.execute("ROLLBACK;"); } catch {}
+      try { await db.execute("ROLLBACK;"); } catch { }
       throw e;
     }
   }

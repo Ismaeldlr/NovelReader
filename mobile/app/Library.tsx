@@ -263,34 +263,30 @@ export default function Library() {
       let seq = (seqRow[0]?.m ?? 0) + 1;
 
 
-  // Only skip cover/title pages, import all others as chapters
-  const chapterItems = htmlItems.filter(notCover);
 
-      let processed = 0;
+      // Filter chapters: skip cover/title pages, 'information', too short, and unwanted titles
+      const chapterItems = htmlItems.filter(notCover);
+      const clean = [];
       for (const item of chapterItems) {
         const path = resolveHref(item.href);
         const html = await readZipText(zip, path);
-        if (!html) {
-          processed++;
-          setPct(Math.round((processed / Math.max(1, chapterItems.length)) * 100));
-          continue;
-        }
-
+        if (!html) continue;
         const displayTitle = extractTitle(html) || `Chapter ${seq}`;
         const text = htmlToPlainText(html);
-
         const t = (displayTitle || "").toLowerCase();
         const badTitle = /(table of contents|contents|toc|copyright|title page)/i.test(t);
+        const isInformation = t.trim() === "information";
         const tooShort = text.replace(/\s+/g, " ").trim().length < 60;
-        if (badTitle || tooShort) {
-          processed++;
-          setPct(Math.round((processed / Math.max(1, chapterItems.length)) * 100));
-          continue;
+        if (!badTitle && !isInformation && !tooShort) {
+          clean.push({ displayTitle, text });
         }
+      }
 
+      let processed = 0;
+      for (const ch of clean) {
         await db.execute(
           "INSERT INTO chapters (novel_id, seq, volume, display_title) VALUES (?,?,?,?)",
-          [novelId, seq, null, displayTitle]
+          [novelId, seq, null, ch.displayTitle]
         );
         const chRow = await db.select(
           "SELECT id FROM chapters WHERE novel_id = ? AND seq = ? LIMIT 1",
@@ -300,12 +296,12 @@ export default function Library() {
 
         await db.execute(
           "INSERT INTO chapter_variants (chapter_id, variant_type, lang, title, content, source_url, provider, model_name, is_primary) VALUES (?,?,?,?,?,?,?,?,?)",
-          [chId, "RAW", lang, displayTitle, text, null, "epub", null, 0]
+          [chId, "RAW", lang, ch.displayTitle, ch.text, null, "epub", null, 0]
         );
 
         seq++;
         processed++;
-        setPct(Math.round((processed / Math.max(1, chapterItems.length)) * 100));
+        setPct(Math.round((processed / Math.max(1, clean.length)) * 100));
       }
 
       setEpubMsg(`Imported ${processed} chapter(s).`);
