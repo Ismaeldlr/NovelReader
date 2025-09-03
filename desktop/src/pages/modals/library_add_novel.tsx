@@ -161,36 +161,33 @@ export function AddNovelModal({
           {/* Lang */}
           <div className="library-add-form-row">
             <label className="library-add-label">Original Language</label>
-            <input
+            <select
               className="library-add-input"
               value={langOriginal}
               onChange={(e) => setLangOriginal(e.target.value)}
-            />
+            >
+              <option value="">— Select —</option>
+              <option value="en">English</option>
+              <option value="zh">Chinese</option>
+              <option value="ko">Korean</option>
+              <option value="ja">Japanese</option>
+              <option value="es">Spanish</option>
+            </select>
           </div>
 
           {/* Status */}
           <div className="library-add-form-row">
             <label className="library-add-label">Status</label>
-            {statusOptions?.length ? (
-              <select
-                className="library-add-input"
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-              >
-                <option value="">— Select —</option>
-                {statusOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input
-                className="library-add-input"
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-              />
-            )}
+            <select
+              className="library-add-input"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              <option value="">— Select —</option>
+              <option value="ongoing">Ongoing</option>
+              <option value="completed">Completed</option>
+              <option value="hiatus">Hiatus</option>
+            </select>
           </div>
 
           {/* Cover */}

@@ -552,7 +552,7 @@ const styles = createStyles((t) => StyleSheet.create({
     marginBottom: t.spacing(2),
   },
   cover: {
-    width: 56, height: 56, borderRadius: t.radius.md,
+    width: 76, height: 112, borderRadius: t.radius.md,
     backgroundColor: "#1b222c", alignItems: "center", justifyContent: "center",
   },
   coverText: { color: "#c3c7d1", fontWeight: "800", fontSize: 16 },

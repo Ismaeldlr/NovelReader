@@ -578,7 +578,7 @@ a.chapter-link{color:inherit;text-decoration:none}
 .library-add-form,
 .library-edit-form{padding:20px 22px 24px;display:grid;gap:16px}
 .library-add-form-row,
-.library-edit-form-row{display:grid;gap:8px}
+.library-edit-form-row{display:grid;gap:8px;}
 
 .library-edit-grid{display:grid;gap:16px;grid-template-columns:1fr 1fr}
 @media (max-width:860px){.library-edit-grid{grid-template-columns:1fr}}
@@ -607,6 +607,15 @@ a.chapter-link{color:inherit;text-decoration:none}
   background: var(--surface-3);
   box-shadow:0 0 0 4px color-mix(in oklab, var(--accent) 25%, transparent)
 }
+
+.library-add-input option,
+.library-edit-input option {
+  background: var(--surface-4);
+  color: black;
+  font: inherit;
+  border-radius: 0; /* Native dropdowns don't support border-radius on options */
+}
+
 .library-edit-input:focus,
 .library-edit-textarea:focus,
 select.library-edit-input:focus{
@@ -904,4 +913,82 @@ select.library-edit-input:focus{
 :root[data-theme="light"] .cover-option:hover{
   background: rgba(59,130,246,.12);
   border-color: rgba(59,130,246,.5);
+}
+
+/* =========================
+   Reading History (unique)
+   ========================= */
+.history-page {}
+
+.history-top{
+  display:flex; align-items:center; justify-content:space-between;
+}
+
+.history-title{
+  margin:0;
+}
+
+.history-toolbar{
+  display:flex; align-items:center; gap:8px;
+}
+
+.history-grid{
+  margin-top:10px;
+}
+
+/* Fine-tune the card without touching .card globally */
+.history-card{
+  position:relative;
+}
+
+/* Title row with optional status badge */
+.history-meta-row{
+  display:flex; align-items:center; gap:8px;
+}
+
+/* Small neutral badge for status or tags */
+.history-badge{
+  padding:2px 8px;
+  border-radius:999px;
+  font-size:12px;
+  color:var(--text);
+  background:var(--surface-2);
+  border:1px solid var(--surface-4);
+}
+
+/* Subtle secondary row for timestamps */
+.history-updated{
+  margin-top:6px;
+  font-size:12px;
+  color:var(--muted);
+}
+
+/* History: make ghost buttons look like real buttons (scoped) */
+.history-actions .history-btn{
+  display:inline-flex; align-items:center; gap:8px;
+  height:34px; padding:0 12px; border-radius:10px;
+  border:1px solid var(--surface-4);
+  background:var(--surface-2); color:var(--text);
+  text-decoration:none; /* kill underline on <a> */
+  font-weight:600; letter-spacing:.2px;
+  transition: background .15s ease, border-color .15s ease, transform .08s ease;
+  margin-left: 20px;
+}
+.history-actions .history-btn:hover{ background:var(--surface-3); border-color:var(--surface-5); }
+.history-actions .history-btn:active{ transform:translateY(1px); }
+.history-actions a.history-btn{ text-decoration:none; }
+
+/* Subtle danger tint for Clear */
+.history-actions .history-btn.danger{
+  border-color: color-mix(in oklab, red 40%, var(--surface-4));
+  background: color-mix(in oklab, red 10%, var(--surface-2));
+}
+.history-actions .history-btn.danger:hover{
+  border-color: color-mix(in oklab, red 55%, var(--surface-5));
+  background: color-mix(in oklab, red 18%, var(--surface-3));
+}
+
+/* Load more area */
+.history-loadmore{
+  display:grid; place-items:center; margin-top:16px;
 }

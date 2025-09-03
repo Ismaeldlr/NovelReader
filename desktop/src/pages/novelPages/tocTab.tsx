@@ -35,8 +35,8 @@ export default function TocTab({
     return { ranges: r, maxSeq: max };
   }, [chapters]);
 
-  // Default to the last range (most recent chapters) if there are many
-  const [rangeIndex, setRangeIndex] = useState(() => Math.max(0, ranges.length - 1));
+  // Default to the first range (oldest chapters)
+  const [rangeIndex, setRangeIndex] = useState(() => 0);
 
   const active = ranges[rangeIndex] ?? { start: 1, end: maxSeq };
   const visible = useMemo(

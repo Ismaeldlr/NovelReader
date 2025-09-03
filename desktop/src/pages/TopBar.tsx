@@ -149,10 +149,15 @@ export default function TopBar() {
             <svg width="18" height="18" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" /><path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
             <span>Novel Finder</span>
           </button>
+          <button className="drawer-link" onClick={() => go("/ReadingHistory")}>
+            <svg width="18" height="18" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="2" /><path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+            <span>Reading History</span>
+          </button>
           <button className="drawer-link" onClick={() => go("/random")}>
             <svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 7h6l2 4 2-4h6M4 17h6l2-4 2 4h6" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" /></svg>
             <span>Random Novels</span>
           </button>
+
     
           <button className="drawer-link" onClick={() => go("/transfer?mode=import")}>
             <svg width="18" height="18" viewBox="0 0 24 24">
