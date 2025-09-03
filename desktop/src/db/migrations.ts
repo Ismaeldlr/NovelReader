@@ -6,8 +6,9 @@ export interface SqlDb {
   select(sql: string): Promise<Array<Record<string, any>>>;
 }
 
-// v1 schema (INTEGER timestamps, no triggers)
+// v1 schema (INTEGER timestamps, no reading tables)
 export const MIGRATIONS: string[] = [
+  // --------------------------- v1 ---------------------------
   `
   PRAGMA foreign_keys = ON;
 
@@ -55,10 +56,10 @@ export const MIGRATIONS: string[] = [
     id            INTEGER PRIMARY KEY,
     chapter_id    INTEGER NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
     position_pct  REAL NOT NULL DEFAULT 0,
-    device_id     TEXT NOT NULL DEFAULT '',    
+    device_id     TEXT NOT NULL DEFAULT '',
     created_at    INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at    INTEGER NOT NULL DEFAULT (unixepoch()),
-    UNIQUE (chapter_id, device_id)                
+    UNIQUE (chapter_id, device_id)
   );
 
   CREATE INDEX IF NOT EXISTS idx_chapters_novel   ON chapters(novel_id);
@@ -85,6 +86,10 @@ export const MIGRATIONS: string[] = [
   BEGIN
     UPDATE bookmarks SET updated_at = unixepoch() WHERE id = NEW.id;
   END;
+  `,
+
+  // --------------------------- v2 (reading progress) ---------------------------
+  `
   PRAGMA foreign_keys = ON;
 
   -- Fine-grained per-chapter progress (separate from bookmarks)
@@ -206,4 +211,3 @@ export async function applyMigrations(db: SqlDb): Promise<void> {
     }
   }
 }
-

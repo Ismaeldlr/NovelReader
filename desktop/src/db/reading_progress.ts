@@ -1,9 +1,5 @@
+// ../db/reading_progress.ts
 import { initDb } from "./init";
-
-export async function ensureReadingTables() {
-  // v2 migration already creates them, but calling this ensures the DB is opened
-  return initDb();
-}
 
 export function getDeviceId(): string {
   const KEY = "device_id";
@@ -15,12 +11,16 @@ export function getDeviceId(): string {
   return id;
 }
 
+async function getDb() {
+  // initDb should call applyMigrations() on startup so v2 schema exists
+  return initDb();
+}
+
 export async function saveReadingProgress(novelId: number, chapterId: number, positionPct: number) {
-  const db = await ensureReadingTables();
+  const db = await getDb();
   const pct = Math.min(1, Math.max(0, positionPct));
   const device = getDeviceId();
 
-  // per-chapter
   await db.execute(
     `INSERT INTO reading_progress (novel_id, chapter_id, position_pct, device_id, created_at, updated_at)
      VALUES (?, ?, ?, ?, unixepoch(), unixepoch())
@@ -30,7 +30,6 @@ export async function saveReadingProgress(novelId: number, chapterId: number, po
     [novelId, chapterId, pct, device]
   );
 
-  // per-novel summary
   await db.execute(
     `INSERT INTO reading_state (novel_id, chapter_id, position_pct, device_id, updated_at)
      VALUES (?, ?, ?, ?, unixepoch())
@@ -43,7 +42,7 @@ export async function saveReadingProgress(novelId: number, chapterId: number, po
 }
 
 export async function getContinueForNovel(novelId: number) {
-  const db = await ensureReadingTables();
+  const db = await getDb();
   const device = getDeviceId();
   const rows = await db.select(
     `SELECT chapter_id, position_pct
@@ -56,13 +55,13 @@ export async function getContinueForNovel(novelId: number) {
 }
 
 export async function getRecentProgressInNovel(novelId: number) {
-  const db = await ensureReadingTables();
+  const db = await getDb();
   const device = getDeviceId();
   const rows = await db.select(
-    `SELECT rp.chapter_id, rp.position_pct
-       FROM reading_progress rp
-      WHERE rp.novel_id = ? AND rp.device_id = ?
-      ORDER BY rp.updated_at DESC
+    `SELECT chapter_id, position_pct
+       FROM reading_progress
+      WHERE novel_id = ? AND device_id = ?
+      ORDER BY updated_at DESC
       LIMIT 1;`,
     [novelId, device]
   );
@@ -70,32 +69,46 @@ export async function getRecentProgressInNovel(novelId: number) {
 }
 
 export async function getNovelProgressSummary(novelId: number) {
-  const db = await ensureReadingTables();
-
+  const db = await initDb(); // or getDb() if you wrapped it
   const totalRow = await db.select(`SELECT COUNT(*) AS n FROM chapters WHERE novel_id = ?;`, [novelId]);
   const total = Number(totalRow[0]?.n ?? 0);
 
   const device = getDeviceId();
-  const doneRow = await db.select(
-    `SELECT MAX(c.seq) AS max_seq
-       FROM reading_progress rp
-       JOIN chapters c ON c.id = rp.chapter_id
-      WHERE rp.novel_id = ? AND rp.device_id = ? AND rp.position_pct >= 0.9;`,
+
+  // Prefer the fast pointer in reading_state
+  const stateRow = await db.select(
+    `SELECT c.seq AS seq
+       FROM reading_state rs
+       JOIN chapters c ON c.id = rs.chapter_id
+      WHERE rs.novel_id = ? AND rs.device_id = ?
+      LIMIT 1;`,
     [novelId, device]
   );
 
-  const maxSeq = Number(doneRow[0]?.max_seq ?? 0);
-  const percent = total ? Math.min(1, maxSeq / total) : 0;
+  let lastSeq = Number(stateRow?.[0]?.seq ?? 0);
 
-  return { totalChapters: total, maxReadSeq: maxSeq, percent };
+  // Fallback: any visited chapter in reading_progress (no pct filter)
+  if (!lastSeq) {
+    const maxRow = await db.select(
+      `SELECT MAX(c.seq) AS max_seq
+         FROM reading_progress rp
+         JOIN chapters c ON c.id = rp.chapter_id
+        WHERE rp.novel_id = ? AND rp.device_id = ?;`,
+      [novelId, device]
+    );
+    lastSeq = Number(maxRow?.[0]?.max_seq ?? 0);
+  }
+
+  const percent = total ? Math.min(1, lastSeq / total) : 0;
+  return { totalChapters: total, maxReadSeq: lastSeq, percent };
 }
+
 
 export async function getReadMapForChapters(chapterIds: number[]) {
   if (chapterIds.length === 0) return {};
-  const db = await ensureReadingTables();
+  const db = await getDb();
   const device = getDeviceId();
   const placeholders = chapterIds.map(() => "?").join(",");
-
   const rows = await db.select(
     `SELECT chapter_id
        FROM reading_progress
@@ -104,8 +117,7 @@ export async function getReadMapForChapters(chapterIds: number[]) {
         AND chapter_id IN (${placeholders});`,
     [device, ...chapterIds]
   );
-
-  const map: Record<number, boolean> = {};
-  rows.forEach((r: any) => { map[r.chapter_id] = true; });
-  return map;
+  const m: Record<number, boolean> = {};
+  rows.forEach((r: any) => { m[r.chapter_id] = true; });
+  return m;
 }
