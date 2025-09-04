@@ -6,8 +6,11 @@ import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
 import JSZip from "jszip";
 
+/* ==========================
+   Export format (v2)
+   ========================== */
 type ExportJSON = {
-  version: number;
+  version: 2;
   exported_at: number; // unix epoch
   novels: Array<{
     title: string;
@@ -19,6 +22,17 @@ type ExportJSON = {
     slug: string | null;
     created_at: number;
     updated_at: number;
+
+    // v2 additions
+    genres: string[];
+    tags: string[];
+    reading_state: Array<{
+      device_id: string;
+      chapter_seq: number;   // seq in this novel
+      position_pct: number;  // 0..1
+      updated_at: number;
+    }>;
+
     chapters: Array<{
       seq: number;
       volume: number | null;
@@ -38,6 +52,13 @@ type ExportJSON = {
         updated_at: number;
       }>;
       bookmarks: Array<{
+        position_pct: number;
+        device_id: string;
+        created_at: number;
+        updated_at: number;
+      }>;
+      // v2 addition
+      reading_progress: Array<{
         position_pct: number;
         device_id: string;
         created_at: number;
@@ -63,29 +84,56 @@ export default function ExportScreen() {
        FROM novels ORDER BY updated_at DESC`
     );
 
-    const out: ExportJSON = { version: 1, exported_at: Math.floor(Date.now()/1000), novels: [] };
+    const out: ExportJSON = { version: 2, exported_at: Math.floor(Date.now()/1000), novels: [] };
     let processed = 0;
 
-    for (const n of novels) {
+    for (const n of novels as any[]) {
+      // facets
+      const genreRows = await db.select(
+        `SELECT g.name
+           FROM novel_genres ng
+           JOIN genres g ON g.id = ng.genre_id
+          WHERE ng.novel_id = ?
+          ORDER BY g.name ASC`, [n.id]
+      );
+      const tagRows = await db.select(
+        `SELECT t.name
+           FROM novel_tags nt
+           JOIN tags t ON t.id = nt.tag_id
+          WHERE nt.novel_id = ?
+          ORDER BY t.name ASC`, [n.id]
+      );
+
+      // chapters
       const chapters = await db.select(
         `SELECT id, seq, volume, display_title, created_at, updated_at
-         FROM chapters WHERE novel_id = ? ORDER BY seq ASC`, [n.id]
+           FROM chapters
+          WHERE novel_id = ?
+          ORDER BY seq ASC`, [n.id]
       );
 
       const chOut: ExportJSON["novels"][number]["chapters"] = [];
 
-      for (const ch of chapters) {
+      for (const ch of chapters as any[]) {
         const variants = await db.select(
           `SELECT variant_type, lang, title, content, source_url, provider, model_name,
                   is_primary, created_at, updated_at
-           FROM chapter_variants
-           WHERE chapter_id = ?
-           ORDER BY is_primary DESC, created_at ASC`, [ch.id]
+             FROM chapter_variants
+            WHERE chapter_id = ?
+            ORDER BY is_primary DESC, created_at ASC`, [ch.id]
         );
 
         const bookmarks = await db.select(
           `SELECT position_pct, device_id, created_at, updated_at
-           FROM bookmarks WHERE chapter_id = ?`, [ch.id]
+             FROM bookmarks
+            WHERE chapter_id = ?`, [ch.id]
+        );
+
+        // v2: per-chapter reading_progress
+        const rprog = await db.select(
+          `SELECT position_pct, device_id, created_at, updated_at
+             FROM reading_progress
+            WHERE chapter_id = ?`, [ch.id]
         );
 
         chOut.push({
@@ -94,7 +142,7 @@ export default function ExportScreen() {
           display_title: ch.display_title ?? null,
           created_at: ch.created_at,
           updated_at: ch.updated_at,
-          variants: variants.map((v: any) => ({
+          variants: (variants as any[]).map(v => ({
             variant_type: v.variant_type,
             lang: v.lang,
             title: v.title ?? null,
@@ -106,14 +154,29 @@ export default function ExportScreen() {
             created_at: v.created_at,
             updated_at: v.updated_at,
           })),
-          bookmarks: bookmarks.map((b: any) => ({
+          bookmarks: (bookmarks as any[]).map(b => ({
             position_pct: Number(b.position_pct),
             device_id: b.device_id,
             created_at: b.created_at,
             updated_at: b.updated_at,
           })),
+          reading_progress: (rprog as any[]).map(rp => ({
+            position_pct: Number(rp.position_pct),
+            device_id: rp.device_id,
+            created_at: rp.created_at,
+            updated_at: rp.updated_at,
+          })),
         });
       }
+
+      // v2: reading_state (seq based)
+      const rstate = await db.select(
+        `SELECT rs.device_id, rs.position_pct, rs.updated_at, c.seq AS chapter_seq
+           FROM reading_state rs
+           JOIN chapters c ON c.id = rs.chapter_id
+          WHERE rs.novel_id = ?
+          ORDER BY rs.updated_at DESC`, [n.id]
+      );
 
       out.novels.push({
         title: n.title,
@@ -125,12 +188,20 @@ export default function ExportScreen() {
         slug: n.slug ?? null,
         created_at: n.created_at,
         updated_at: n.updated_at,
+        genres: (genreRows as any[]).map(g => g.name),
+        tags:   (tagRows as any[]).map(t => t.name),
+        reading_state: (rstate as any[]).map(rs => ({
+          device_id: rs.device_id,
+          chapter_seq: Number(rs.chapter_seq),
+          position_pct: Number(rs.position_pct),
+          updated_at: rs.updated_at,
+        })),
         chapters: chOut,
       });
 
       processed++;
-      setPct(Math.round((processed / Math.max(1, novels.length || 1)) * 100));
-      setMsg(`Packing ${processed}/${novels.length} novel(s)…`);
+      setPct(Math.round((processed / Math.max(1, (novels as any[]).length || 1)) * 100));
+      setMsg(`Packing ${processed}/${(novels as any[]).length} novel(s)…`);
     }
 
     return out;
@@ -152,7 +223,6 @@ export default function ExportScreen() {
       const name = `novels-export-${stamp.getFullYear()}${pad(stamp.getMonth()+1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}.zip`;
       const fileUri = FileSystem.cacheDirectory + name;
 
-      // Write base64 to file
       await FileSystem.writeAsStringAsync(fileUri, blob, { encoding: FileSystem.EncodingType.Base64 });
 
       setMsg("Opening share sheet…");

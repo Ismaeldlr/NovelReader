@@ -159,7 +159,7 @@ a.chapter-link{color:inherit;text-decoration:none}
    ========================================================= */
 .library{
   display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+  grid-template-columns:repeat(auto-fit,minmax(360px,1fr));
   gap:16px;
 }
 

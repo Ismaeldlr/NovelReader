@@ -1,6 +1,6 @@
 // app/Library.tsx (or screens/Library.tsx)
 import { useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, Pressable, StyleSheet } from "react-native";
+import { View, Text, FlatList, Pressable, StyleSheet, Image } from "react-native";
 import { useRouter } from "expo-router";
 import { useTheme, createStyles } from "../src/theme";
 import { initDb } from "../src/db";
@@ -47,6 +47,12 @@ export default function Library() {
     await reload();
   }
 
+  function normalizeCoverUri(p?: string | null) {
+    if (!p) return null;
+    if (/^(file|content|https?):|^data:/.test(p)) return p; // already a URI
+    // bare relative/absolute path -> treat as local file
+    return "file://" + p.replace(/^\/+/, "");
+  }
   return (
     <View style={s.container}>
       <View style={s.header}>
@@ -71,7 +77,17 @@ export default function Library() {
               onPress={() => router.push({ pathname: "/novel/[id]", params: { id: String(item.id) } })}
               android_ripple={{ color: "#222" }}
             >
-              <View style={s.cover}><Text style={s.coverText}>{initials(item.title)}</Text></View>
+              <View style={s.cover}>
+                {item.cover_path ? (
+                  <Image
+                    source={{ uri: normalizeCoverUri(item.cover_path) as string }}
+                    style={s.coverImg}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <Text style={s.coverText}>{initials(item.title)}</Text>
+                )}
+              </View>
               <View style={s.meta}>
                 <Text numberOfLines={1} style={s.title}>{item.title}</Text>
                 <Text numberOfLines={1} style={s.author}>{item.author || "Unknown author"}</Text>
@@ -131,10 +147,15 @@ const styles = createStyles((t) => StyleSheet.create({
     borderColor: t.colors.border,
   },
   cover: {
-    width: 76, height: 112, borderRadius: t.radius.md,
-    backgroundColor: "#1b222c", alignItems: "center", justifyContent: "center",
+    width: 76, height: 112,
+    borderRadius: t.radius.md,
+    overflow: "hidden",                // so the image respects rounding
+    backgroundColor: "#1b222c",
+    alignItems: "center", justifyContent: "center",
   },
+  coverImg: { width: "100%", height: "100%" },
   coverText: { color: "#c3c7d1", fontWeight: "800", fontSize: 16 },
+
   meta: { flex: 1 },
   title: { color: t.colors.text, fontSize: t.font.md, fontWeight: "700" },
   author: { color: t.colors.textDim, marginTop: 2 },

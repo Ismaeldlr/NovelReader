@@ -23,6 +23,7 @@ type NovelRow = {
   lang_original: string | null;
   status: string | null;
   slug: string | null;
+  cover_path: string | null;
 };
 
 export default function EditNovelSheet({ visible, onClose, onSaved, novelId }: Props) {
@@ -41,6 +42,7 @@ export default function EditNovelSheet({ visible, onClose, onSaved, novelId }: P
   const [langOriginal, setLangOriginal] = useState("");
   const [status, setStatus] = useState("");
   const [slug, setSlug] = useState("");
+  const [coverPath, setCoverPath] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -51,7 +53,7 @@ export default function EditNovelSheet({ visible, onClose, onSaved, novelId }: P
       try {
         const db = await initDb();
         const rows = await db.select<NovelRow>(
-          `SELECT id, title, author, description, lang_original, status, slug
+          `SELECT id, title, author, description, lang_original, status, slug, cover_path
              FROM novels WHERE id = ? LIMIT 1;`,
           [novelId]
         );
@@ -63,6 +65,7 @@ export default function EditNovelSheet({ visible, onClose, onSaved, novelId }: P
           setLangOriginal(n.lang_original ?? "");
           setStatus(n.status ?? "");
           setSlug(n.slug ?? "");
+          setCoverPath(n.cover_path ?? "");
         }
       } catch (e: any) {
         if (alive) setErr(e?.message || String(e));
@@ -106,7 +109,8 @@ export default function EditNovelSheet({ visible, onClose, onSaved, novelId }: P
                 description = ?,
                 lang_original = ?,
                 status = ?,
-                slug = ?
+                slug = ?,
+                cover_path = ?
           WHERE id = ?;`,
         [
           name,
@@ -115,6 +119,7 @@ export default function EditNovelSheet({ visible, onClose, onSaved, novelId }: P
           langOriginal.trim() || null,
           status.trim() || null,
           slug.trim() || null,
+          coverPath.trim() || null,
           novelId,
         ]
       );
@@ -146,6 +151,7 @@ export default function EditNovelSheet({ visible, onClose, onSaved, novelId }: P
             <>
               {!!err && <Text style={s.err}>{err}</Text>}
 
+
               <View style={s.field}>
                 <Text style={s.label}>Title *</Text>
                 <TextInput
@@ -154,6 +160,19 @@ export default function EditNovelSheet({ visible, onClose, onSaved, novelId }: P
                   placeholderTextColor={theme.colors.textDim}
                   value={title}
                   onChangeText={setTitle}
+                />
+              </View>
+
+              <View style={s.field}>
+                <Text style={s.label}>Cover Path</Text>
+                <TextInput
+                  style={s.input}
+                  placeholder="https://example.com/cover.jpg or local path"
+                  placeholderTextColor={theme.colors.textDim}
+                  value={coverPath}
+                  onChangeText={setCoverPath}
+                  autoCapitalize="none"
+                  autoCorrect={false}
                 />
               </View>
 
