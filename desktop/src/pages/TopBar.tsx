@@ -135,10 +135,6 @@ export default function TopBar() {
         <nav className="drawer-nav">
           <button className="drawer-link" onClick={() => go("/")}>
             <svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 5h6v14H4zM14 5h6v14h-6z" stroke="currentColor" strokeWidth="2" /></svg>
-            <span>Home</span>
-          </button>
-          <button className="drawer-link" onClick={() => go("/")}>
-            <svg width="18" height="18" viewBox="0 0 24 24"><path d="M4 5h6v14H4zM14 5h6v14h-6z" stroke="currentColor" strokeWidth="2" /></svg>
             <span>Library</span>
           </button>
           <button className="drawer-link" onClick={() => go("/novels")}>

@@ -369,6 +369,22 @@ a.chapter-link{color:inherit;text-decoration:none}
 }
 .kv-grid span{ display:block; font-size:.85rem; color:var(--muted); }
 
+/* About tab chips/sections */
+.about-section{ margin:14px 0 10px; }
+.about-section-title{ margin:0 0 6px; font-size:1rem; letter-spacing:.2px; }
+.about-none{ margin:0; color:var(--muted); }
+
+.about-chip-row{
+  display:flex; flex-wrap:wrap; gap:6px;
+}
+.about-chip{
+  padding:2px 8px; border-radius:999px; font-size:12px;
+  background:var(--chip-bg);
+  border:1px solid var(--chip-border);
+  color:var(--text);
+}
+
+
 /* TOC range bar */
 .toc-wrap{ display:grid; gap:10px; }
 
@@ -666,6 +682,22 @@ select.library-edit-input:focus{
 .library-edit-btn.primary:hover{
   background: linear-gradient(135deg, color-mix(in oklab, var(--accent) 25%, transparent), color-mix(in oklab, var(--accent) 45%, transparent));
 }
+
+/* Add Novel — genres/tags layout */
+.add-choices{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:6px 12px;
+}
+@media (max-width: 620px){
+  .add-choices{ grid-template-columns:1fr; }
+}
+.add-choice{
+  display:flex; align-items:center; gap:8px;
+  font-size:.98rem;
+}
+.add-tags-select{ min-height:160px; }
+
 
 /* =========================================================
    SIDE DRAWER

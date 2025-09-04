@@ -87,13 +87,24 @@ export default function Library() {
     title: string;
     author?: string | null;
     description?: string | null;
+    cover_path?: string | null;
+    lang_original?: string | null;
+    status?: string | null;
   }) {
     const db = dbRef.current;
     if (!db) return;
 
     await db.execute(
-      "INSERT INTO novels (title, author, description) VALUES ($1, $2, $3)",
-      [data.title.trim(), data.author?.trim() || null, data.description?.trim() || null]
+      `INSERT INTO novels (title, author, description, cover_path, lang_original, status)
+        VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        data.title.trim(),
+        data.author?.trim() || null,
+        data.description?.trim() || null,
+        data.cover_path?.trim() || null,
+        data.lang_original?.trim() || null,
+        data.status?.trim() || null
+      ]
     );
     await loadNovels(db, q); // respeta el filtro actual
   }
@@ -210,6 +221,7 @@ export default function Library() {
       )}
 
       {/* Add Novel Modal */}
+
       <AddNovelModal
         open={isAddOpen}
         onClose={closeAddModal}
@@ -217,6 +229,12 @@ export default function Library() {
           await handleAddNovelSubmit(payload);
           closeAddModal();
         }}
+        statusOptions={[
+          { value: "ongoing", label: "Ongoing" },
+          { value: "completed", label: "Completed" },
+          { value: "hiatus", label: "Hiatus" },
+          { value: "dropped", label: "Dropped" }
+        ]}
       />
 
       <EditNovelModal

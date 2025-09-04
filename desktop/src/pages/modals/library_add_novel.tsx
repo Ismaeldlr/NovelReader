@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import CoverSearchModal from "./CoverSearchModal"; // 👈 importa tu modal real
+import { initDb } from "../../db/init";              // <-- add this
+import CoverSearchModal from "./CoverSearchModal";
 
 export type NovelStatus = string;
 
@@ -10,6 +11,10 @@ export type AddNovelPayload = {
   cover_path?: string | null;
   lang_original?: string | null;
   status?: NovelStatus | null;
+
+  // NEW: selections to persist in join tables
+  genre_ids?: number[];
+  tag_ids?: number[];
 };
 
 type AddNovelModalProps = {
@@ -19,11 +24,12 @@ type AddNovelModalProps = {
   statusOptions?: Array<{ value: NovelStatus; label: string }>;
 };
 
+type Facet = { id: number; name: string };
+
 export function AddNovelModal({
   open,
   onClose,
   onSubmit,
-  statusOptions
 }: AddNovelModalProps) {
   const modalRef = useRef<HTMLDivElement | null>(null);
 
@@ -34,12 +40,19 @@ export function AddNovelModal({
   const [langOriginal, setLangOriginal] = useState("");
   const [status, setStatus] = useState<NovelStatus>("");
 
+  // NEW: facets + selections
+  const [genres, setGenres] = useState<Facet[]>([]);
+  const [tags, setTags] = useState<Facet[]>([]);
+  const [selectedGenres, setSelectedGenres] = useState<number[]>([]);
+  const [selectedTags, setSelectedTags] = useState<number[]>([]);
+  const [tagsFilter, setTagsFilter] = useState("");
+
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // 👇 estado para abrir el modal de búsqueda
   const [coverSearchOpen, setCoverSearchOpen] = useState(false);
 
+  // reset fields when opened
   useEffect(() => {
     if (open) {
       setTitle("");
@@ -48,25 +61,39 @@ export function AddNovelModal({
       setCoverPath("");
       setLangOriginal("");
       setStatus("");
+      setSelectedGenres([]);
+      setSelectedTags([]);
+      setTagsFilter("");
       setError(null);
       setSubmitting(false);
       setCoverSearchOpen(false);
+
+      // load facets fresh when opening
+      (async () => {
+        try {
+          const db = await initDb();
+          const gs = await db.select("SELECT id, name FROM genres ORDER BY name ASC;");
+          const ts = await db.select("SELECT id, name FROM tags   ORDER BY name ASC;");
+          setGenres(gs as Facet[]);
+          setTags(ts as Facet[]);
+        } catch (e) {
+          console.error("Load facets error:", e);
+        }
+      })();
     }
   }, [open]);
 
+  // esc / outside click
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (coverSearchOpen) {
-          setCoverSearchOpen(false);
-        } else {
-          onClose();
-        }
+        if (coverSearchOpen) setCoverSearchOpen(false);
+        else onClose();
       }
     };
     const onDown = (e: MouseEvent) => {
-      if (coverSearchOpen) return; // Don't close Add modal if CoverSearchModal is open
+      if (coverSearchOpen) return;
       if (modalRef.current && e.target instanceof Node && !modalRef.current.contains(e.target)) {
         onClose();
       }
@@ -81,13 +108,16 @@ export function AddNovelModal({
 
   const coverLooksLikeUrl = useMemo(() => {
     if (!coverPath) return false;
-    try {
-      new URL(coverPath);
-      return true;
-    } catch {
-      return /^\/|^\.\.?\//.test(coverPath);
-    }
+    try { new URL(coverPath); return true; }
+    catch { return /^\/|^\.\.?\//.test(coverPath); }
   }, [coverPath]);
+
+  // filtered tags for the multi-select
+  const filteredTags = useMemo(() => {
+    const q = tagsFilter.trim().toLowerCase();
+    if (!q) return tags;
+    return tags.filter(t => t.name.toLowerCase().includes(q));
+  }, [tags, tagsFilter]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -113,7 +143,9 @@ export function AddNovelModal({
         description: d || null,
         cover_path: c || null,
         lang_original: l || null,
-        status: s ? (s as NovelStatus) : null
+        status: s ? (s as NovelStatus) : null,
+        genre_ids: selectedGenres,     // NEW
+        tag_ids: selectedTags,         // NEW
       });
     } catch (err) {
       setSubmitting(false);
@@ -237,10 +269,56 @@ export function AddNovelModal({
             />
           </div>
 
+          {/* -------- NEW: Genres -------- */}
+          <div className="library-add-form-row">
+            <label className="library-add-label">Genres</label>
+            <div className="add-choices">
+              {genres.map(g => (
+                <label key={g.id} className="add-choice">
+                  <input
+                    type="checkbox"
+                    checked={selectedGenres.includes(g.id)}
+                    onChange={(e) => {
+                      setSelectedGenres(prev =>
+                        e.target.checked ? [...prev, g.id] : prev.filter(id => id !== g.id)
+                      );
+                    }}
+                  />
+                  <span>{g.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* -------- NEW: Tags (filter + multi-select) -------- */}
+          <div className="library-add-form-row">
+            <label className="library-add-label">Tags</label>
+            <input
+              className="library-add-input"
+              placeholder="Filter tags…"
+              value={tagsFilter}
+              onChange={(e) => setTagsFilter(e.target.value)}
+            />
+            <select
+              className="library-add-input add-tags-select"
+              multiple
+              size={8}
+              value={selectedTags.map(String)}
+              onChange={(e) => {
+                const v = Array.from(e.target.selectedOptions).map(o => Number(o.value));
+                setSelectedTags(v);
+              }}
+            >
+              {filteredTags.map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+
           {error && <p className="library-add-error">{error}</p>}
 
           <div className="library-add-actions">
-            <button type="button" className="library-add-btn ghost" onClick={onClose}>
+            <button type="button" className="library-add-btn" onClick={onClose}>
               Cancel
             </button>
             <button type="submit" className="library-add-btn primary" disabled={submitting}>
@@ -250,15 +328,11 @@ export function AddNovelModal({
         </form>
       </div>
 
-      {/* 👇 aquí simplemente llamamos tu modal */}
       <CoverSearchModal
         open={coverSearchOpen}
         initialQuery={defaultCoverQuery}
         onClose={() => setCoverSearchOpen(false)}
-        onSelect={(url: string) => {
-          setCoverPath(url);
-          setCoverSearchOpen(false);
-        }}
+        onSelect={(url: string) => { setCoverPath(url); setCoverSearchOpen(false); }}
       />
     </div>
   );

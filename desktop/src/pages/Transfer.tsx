@@ -7,9 +7,12 @@ import { initDb } from "../db/init";
 
 type Mode = "import" | "export";
 
+/* ==========================
+   Export format (v2)
+   ========================== */
 type ExportJSON = {
-  version: number;
-  exported_at: number; // unix epoch
+  version: 2;                 // bumped to 2
+  exported_at: number;        // unix epoch
   novels: Array<{
     title: string;
     author: string | null;
@@ -20,6 +23,19 @@ type ExportJSON = {
     slug: string | null;
     created_at: number;
     updated_at: number;
+
+    // NEW: metadata facets (by name, safe to upsert later)
+    genres: string[];
+    tags: string[];
+
+    // NEW: reading_state for this novel (seq based for portability)
+    reading_state: Array<{
+      device_id: string;
+      chapter_seq: number;   // points at seq in this export
+      position_pct: number;  // 0..1
+      updated_at: number;
+    }>;
+
     chapters: Array<{
       seq: number;
       volume: number | null;
@@ -44,6 +60,13 @@ type ExportJSON = {
         created_at: number;
         updated_at: number;
       }>;
+      // NEW: per-chapter reading progress rows
+      reading_progress: Array<{
+        position_pct: number;
+        device_id: string;
+        created_at: number;
+        updated_at: number;
+      }>;
     }>;
   }>;
 };
@@ -60,32 +83,88 @@ export default function Transfer() {
   const [isRunning, setIsRunning] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-start export if mode=export (optional)
-  useEffect(() => {
-    if (mode === "export") {
-      // no auto-start to let user click; uncomment to auto-run:
-      // onExport();
+  // -------- Helpers --------
+  async function tableExists(db: any, name: string): Promise<boolean> {
+    try {
+      const r = await db.select(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1;",
+        [name]
+      );
+      return (r?.length ?? 0) > 0;
+    } catch {
+      return false;
     }
-  }, [mode]);
+  }
 
+  function defaultZipName() {
+    const t = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `novels-export-${t.getFullYear()}${pad(t.getMonth() + 1)}${pad(t.getDate())}-${pad(
+      t.getHours()
+    )}${pad(t.getMinutes())}.zip`;
+  }
+
+  // -------- Export --------
   async function queryAllForExport(db: any): Promise<ExportJSON> {
-    // Pull all novels
+    const haveGenres = await tableExists(db, "genres");
+    const haveTags = await tableExists(db, "tags");
+    const haveNG = await tableExists(db, "novel_genres");
+    const haveNT = await tableExists(db, "novel_tags");
+    const haveRP = await tableExists(db, "reading_progress");
+    const haveRS = await tableExists(db, "reading_state");
+
     const novels = await db.select(
       `SELECT id, title, author, description, cover_path, lang_original, status, slug, created_at, updated_at
        FROM novels ORDER BY updated_at DESC;`
     );
 
     const out: ExportJSON = {
-      version: 1,
+      version: 2,
       exported_at: Math.floor(Date.now() / 1000),
       novels: []
     };
 
     let processed = 0;
-    const total = novels.length;
+    const total = novels.length || 1;
 
     for (const n of novels) {
-      // Chapters for this novel
+      // facets
+      let genres: string[] = [];
+      let tags: string[] = [];
+      if (haveGenres && haveNG) {
+        const gs = await db.select(
+          `SELECT g.name FROM novel_genres ng JOIN genres g ON g.id = ng.genre_id WHERE ng.novel_id = ? ORDER BY g.name ASC;`,
+          [n.id]
+        );
+        genres = (gs as Array<{ name: string }>).map(r => r.name);
+      }
+      if (haveTags && haveNT) {
+        const ts = await db.select(
+          `SELECT t.name FROM novel_tags nt JOIN tags t ON t.id = nt.tag_id WHERE nt.novel_id = ? ORDER BY t.name ASC;`,
+          [n.id]
+        );
+        tags = (ts as Array<{ name: string }>).map(r => r.name);
+      }
+
+      // reading_state (per novel) -> store by chapter seq
+      let reading_state: ExportJSON["novels"][number]["reading_state"] = [];
+      if (haveRS) {
+        const rs = await db.select(
+          `SELECT s.device_id, s.position_pct, s.updated_at, c.seq
+             FROM reading_state s
+             JOIN chapters c ON c.id = s.chapter_id
+            WHERE s.novel_id = ?;`,
+          [n.id]
+        );
+        reading_state = (rs as any[]).map(r => ({
+          device_id: r.device_id,
+          chapter_seq: Number(r.seq),
+          position_pct: Number(r.position_pct),
+          updated_at: Number(r.updated_at)
+        }));
+      }
+
+      // chapters
       const chapters = await db.select(
         `SELECT id, seq, volume, display_title, created_at, updated_at
          FROM chapters WHERE novel_id = ? ORDER BY seq ASC;`,
@@ -111,17 +190,33 @@ export default function Transfer() {
           [ch.id]
         );
 
+        let reading_progress: ExportJSON["novels"][number]["chapters"][number]["reading_progress"] =
+          [];
+        if (haveRP) {
+          const rp = await db.select(
+            `SELECT position_pct, device_id, created_at, updated_at
+               FROM reading_progress WHERE chapter_id = ?;`,
+            [ch.id]
+          );
+          reading_progress = (rp as any[]).map(r => ({
+            position_pct: Number(r.position_pct),
+            device_id: r.device_id,
+            created_at: Number(r.created_at),
+            updated_at: Number(r.updated_at)
+          }));
+        }
+
         chOut.push({
           seq: ch.seq,
           volume: ch.volume ?? null,
           display_title: ch.display_title ?? null,
           created_at: ch.created_at,
           updated_at: ch.updated_at,
-          variants: variants.map((v: any) => ({
+          variants: (variants as any[]).map(v => ({
             variant_type: v.variant_type,
             lang: v.lang,
             title: v.title ?? null,
-            content: v.content,
+            content: v.content ?? "",
             source_url: v.source_url ?? null,
             provider: v.provider ?? null,
             model_name: v.model_name ?? null,
@@ -129,12 +224,13 @@ export default function Transfer() {
             created_at: v.created_at,
             updated_at: v.updated_at
           })),
-          bookmarks: bookmarks.map((b: any) => ({
+          bookmarks: (bookmarks as any[]).map(b => ({
             position_pct: Number(b.position_pct),
             device_id: b.device_id,
             created_at: b.created_at,
             updated_at: b.updated_at
-          }))
+          })),
+          reading_progress
         });
       }
 
@@ -148,20 +244,48 @@ export default function Transfer() {
         slug: n.slug ?? null,
         created_at: n.created_at,
         updated_at: n.updated_at,
+        genres,
+        tags,
+        reading_state,
         chapters: chOut
       });
 
       processed++;
-      setPct(Math.round((processed / Math.max(1, total)) * 100));
-      setMsg(`Packing ${processed}/${total} novel(s)…`);
+      setPct(Math.round((processed / total) * 100));
+      setMsg(`Packing ${processed}/${novels.length} novel(s)…`);
     }
 
     return out;
   }
 
-  async function onExport() {
+  // IMPORTANT: open the Save dialog FIRST (while still in user gesture)
+  async function onExportClick() {
     setIsRunning(true);
     setError(null);
+
+    // prepare a name up front
+    const suggestedName = defaultZipName();
+
+    // Try File System Access API immediately
+    // @ts-ignore
+    let handle: any = null;
+    // @ts-ignore
+    const canPick = typeof window.showSaveFilePicker === "function";
+    if (canPick) {
+      try {
+        // @ts-ignore
+        handle = await window.showSaveFilePicker({
+          suggestedName,
+          types: [{ description: "ZIP Archive", accept: { "application/zip": [".zip"] } }]
+        });
+      } catch (e: any) {
+        // User canceled dialog
+        setIsRunning(false);
+        setMsg("Export canceled.");
+        return;
+      }
+    }
+
     try {
       setMsg("Opening database…");
       const db = await initDb();
@@ -174,23 +298,13 @@ export default function Transfer() {
       zip.file("data.json", JSON.stringify(data, null, 2));
       const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
 
-      const stamp = new Date();
-      const pad = (n: number) => String(n).padStart(2, "0");
-      const name = `novels-export-${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}.zip`;
-
-      // Try File System Access API first
-      // @ts-ignore
-      if (window.showSaveFilePicker) {
-        // @ts-ignore
-        const handle = await window.showSaveFilePicker({
-          suggestedName: name,
-          types: [{ description: "ZIP Archive", accept: { "application/zip": [".zip"] } }]
-        });
+      if (handle) {
         const writable = await handle.createWritable();
         await writable.write(blob);
         await writable.close();
       } else {
-        saveAs(blob, name);
+        // fallback for engines without FS Access API (or Tauri)
+        saveAs(blob, suggestedName);
       }
 
       setPct(100);
@@ -204,6 +318,7 @@ export default function Transfer() {
     }
   }
 
+  // -------- Import --------
   async function onPickZip() {
     fileInputRef.current?.click();
   }
@@ -228,27 +343,33 @@ export default function Transfer() {
       const text = await entry.async("string");
       const data: ExportJSON = JSON.parse(text);
 
-      if (!data || data.version !== 1) {
+      if (!data || (data.version !== 2)) {
         throw new Error("Unsupported or missing export version.");
       }
 
       setMsg("Opening database…");
       const db = await initDb();
 
+      const haveGenres = await tableExists(db, "genres");
+      const haveTags = await tableExists(db, "tags");
+      const haveNG = await tableExists(db, "novel_genres");
+      const haveNT = await tableExists(db, "novel_tags");
+      const haveRP = await tableExists(db, "reading_progress");
+      const haveRS = await tableExists(db, "reading_state");
+
       setMsg("Importing (transaction) …");
       await db.execute("BEGIN IMMEDIATE;");
 
-      // Insert novels/chapters/variants/bookmarks with new IDs
-      const total = data.novels.length;
+      const total = data.novels.length || 1;
       let count = 0;
 
       for (const n of data.novels) {
-        // Insert novel (no id => new rowid)
+        // Insert novel
         await db.execute(
           `INSERT INTO novels (title, author, description, cover_path, lang_original, status, slug, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
           [
-            n.title.trim(),
+            (n.title || "").trim(),
             n.author ?? null,
             n.description ?? null,
             n.cover_path ?? null,
@@ -262,6 +383,42 @@ export default function Transfer() {
         const novelIdRow = await db.select(`SELECT last_insert_rowid() AS id;`);
         const newNovelId = novelIdRow[0].id as number;
 
+        // Upsert genres/tags by name then link
+        if (data.version >= 2) {
+          if (haveGenres && haveNG && Array.isArray(n.genres)) {
+            for (const name of n.genres) {
+              const nm = String(name).trim();
+              if (!nm) continue;
+              await db.execute(`INSERT OR IGNORE INTO genres (name) VALUES (?);`, [nm]);
+              const gidRow = await db.select(`SELECT id FROM genres WHERE name = ? LIMIT 1;`, [nm]);
+              const gid = gidRow?.[0]?.id;
+              if (gid) {
+                await db.execute(
+                  `INSERT OR IGNORE INTO novel_genres (novel_id, genre_id) VALUES (?,?);`,
+                  [newNovelId, gid]
+                );
+              }
+            }
+          }
+          if (haveTags && haveNT && Array.isArray(n.tags)) {
+            for (const name of n.tags) {
+              const nm = String(name).trim();
+              if (!nm) continue;
+              await db.execute(`INSERT OR IGNORE INTO tags (name) VALUES (?);`, [nm]);
+              const tidRow = await db.select(`SELECT id FROM tags WHERE name = ? LIMIT 1;`, [nm]);
+              const tid = tidRow?.[0]?.id;
+              if (tid) {
+                await db.execute(
+                  `INSERT OR IGNORE INTO novel_tags (novel_id, tag_id) VALUES (?,?);`,
+                  [newNovelId, tid]
+                );
+              }
+            }
+          }
+        }
+
+        // Insert chapters (+ map seq -> new id for reading_state later)
+        const seqToId = new Map<number, number>();
         for (const ch of n.chapters) {
           await db.execute(
             `INSERT INTO chapters (novel_id, seq, volume, display_title, created_at, updated_at)
@@ -277,6 +434,7 @@ export default function Transfer() {
           );
           const chIdRow = await db.select(`SELECT last_insert_rowid() AS id;`);
           const newChapterId = chIdRow[0].id as number;
+          seqToId.set(ch.seq, newChapterId);
 
           // variants
           for (const v of ch.variants) {
@@ -314,11 +472,49 @@ export default function Transfer() {
               ]
             );
           }
+
+          // reading_progress (v2+)
+          if (data.version >= 2 && haveRP && Array.isArray(ch.reading_progress)) {
+            for (const r of ch.reading_progress) {
+              await db.execute(
+                `INSERT INTO reading_progress (novel_id, chapter_id, position_pct, device_id, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?);`,
+                [
+                  newNovelId,
+                  newChapterId,
+                  Number.isFinite(r.position_pct) ? r.position_pct : 0,
+                  (r.device_id ?? "").slice(0, 128),
+                  r.created_at ?? Math.floor(Date.now() / 1000),
+                  r.updated_at ?? Math.floor(Date.now() / 1000)
+                ]
+              );
+            }
+          }
+        }
+
+        // reading_state (v2+) — remap seq->id
+        if (data.version >= 2 && haveRS && Array.isArray(n.reading_state)) {
+          for (const s of n.reading_state) {
+            const chId = seqToId.get(Number(s.chapter_seq));
+            if (!chId) continue;
+            await db.execute(
+              `INSERT OR REPLACE INTO reading_state
+                 (novel_id, chapter_id, position_pct, device_id, updated_at)
+               VALUES (?, ?, ?, ?, ?);`,
+              [
+                newNovelId,
+                chId,
+                Number.isFinite(s.position_pct) ? s.position_pct : 0,
+                (s.device_id ?? "").slice(0, 128),
+                s.updated_at ?? Math.floor(Date.now() / 1000)
+              ]
+            );
+          }
         }
 
         count++;
-        setPct(Math.round((count / Math.max(1, total)) * 100));
-        setMsg(`Imported ${count}/${total} novel(s)…`);
+        setPct(Math.round((count / total) * 100));
+        setMsg(`Imported ${count}/${data.novels.length} novel(s)…`);
       }
 
       await db.execute("COMMIT;");
@@ -386,7 +582,7 @@ export default function Transfer() {
                   <button className="btn" onClick={onPickZip} disabled={isRunning}>Select ZIP…</button>
                 </>
               ) : (
-                <button className="btn" onClick={onExport} disabled={isRunning}>Export Now</button>
+                <button className="btn" onClick={onExportClick} disabled={isRunning}>Export Now</button>
               )}
             </div>
             <div style={{ display: "flex", gap: 10 }}>
@@ -404,8 +600,8 @@ export default function Transfer() {
 
         <p className="status" style={{ marginTop: 12 }}>
           {mode === "import"
-            ? "This will insert new novels, chapters, variants and bookmarks. IDs are regenerated to avoid collisions."
-            : "This will export your entire library as a single ZIP containing data.json."}
+            ? "This will insert new novels, chapters, variants, bookmarks, reading progress/state, and genres/tags. IDs are regenerated to avoid collisions."
+            : "This will export your entire library (novels, chapters, variants, bookmarks, reading progress/state, genres/tags) as a single ZIP containing data.json."}
         </p>
       </section>
     </div>
