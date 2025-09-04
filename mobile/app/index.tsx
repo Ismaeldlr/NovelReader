@@ -1,12 +1,15 @@
 // app/index.tsx
-import { useMemo, useState } from "react";
+import { JSX, useMemo, useState } from "react";
 import { View, Text, Pressable, StyleSheet, SafeAreaView } from "react-native";
 import { useTheme, createStyles } from "../src/theme";
 import Library from "./Library";
 import MoreScreen from "./MoreScreen";
 
-type TabKey = "Library" | "Updates" | "History" | "Browse" | "More";
+// 👇 importa librerías de íconos
+import { Feather, Ionicons, MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons";
 
+
+type TabKey = "Library" | "Updates" | "History" | "Browse" | "More";
 export default function Index() {
   const [tab, setTab] = useState<TabKey>("Library");
   const { theme, setMode, mode } = useTheme();
@@ -20,17 +23,66 @@ export default function Index() {
     }
   }, [tab]);
 
+  // mapa de íconos con color dependiente del theme
+  const icons: Record<TabKey, (active: boolean) => JSX.Element> = {
+    Library: (active) => (
+      <MaterialCommunityIcons 
+        name="book" 
+        size={22} 
+        color={active ? theme.colors.text : theme.colors.textDim} 
+      />
+    ),
+    Updates: (active) => (
+      <MaterialIcons 
+        name="update" 
+        size={22} 
+        color={active ? theme.colors.text : theme.colors.textDim} 
+      />
+    ),
+    History: (active) => (
+      <MaterialIcons 
+        name="history" 
+        size={22} 
+        color={active ? theme.colors.text : theme.colors.textDim} 
+      />
+    ),
+    Browse: (active) => (
+      <Ionicons 
+        name="search" 
+        size={22} 
+        color={active ? theme.colors.text : theme.colors.textDim} 
+      />
+    ),
+    More: (active) => (
+      <Feather 
+        name="menu" 
+        size={22} 
+        color={active ? theme.colors.text : theme.colors.textDim} 
+      />
+    ),
+  };
+
   return (
-    <SafeAreaView style={s.safe}>
+    <View style={s.safe}>
       <View style={s.container}>
         <View style={s.content}>{Screen}</View>
 
         <View style={s.tabbar}>
-          {(["Library","Updates","History","Browse","More"] as TabKey[]).map(k => (
-            <Pressable key={k} onPress={() => setTab(k)} style={[s.tab, tab === k && s.tabActive]}>
-              <Text style={[s.tabLabel, tab === k && s.tabLabelActive]}>{k}</Text>
-            </Pressable>
-          ))}
+          {(["Library","Updates","History","Browse","More"] as TabKey[]).map(k => {
+            const active = tab === k;
+            return (
+              <Pressable 
+                key={k} 
+                onPress={() => setTab(k)} 
+                style={[s.tab, active && s.tabActive]}
+              >
+                <View style={{ alignItems: "center" }}>
+                  {icons[k](active)}
+                  <Text style={[s.tabLabel, active && s.tabLabelActive]}>{k}</Text>
+                </View>
+              </Pressable>
+            );
+          })}
         </View>
 
         {/* Example theme toggle (dev only) */}
@@ -40,7 +92,7 @@ export default function Index() {
           </Pressable>
         </View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -63,12 +115,23 @@ const styles = createStyles((t) => StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: t.colors.border,
     backgroundColor: t.colors.card,
+
   },
-  tab: { flex: 1, paddingVertical: t.spacing(3), alignItems: "center", justifyContent: "center" },
+  tab: { 
+    flex: 1, 
+    paddingVertical: t.spacing(2), 
+    alignItems: "center", 
+    justifyContent: "center" 
+  },
   tabActive: { backgroundColor: "rgba(127,127,127,0.08)" },
-  tabLabel: { color: t.colors.textDim, fontSize: 12, fontWeight: "600" },
+  tabLabel: { 
+    color: t.colors.textDim, 
+    fontSize: 12, 
+    fontWeight: "600", 
+    marginTop: 2 
+  },
   tabLabelActive: { color: t.colors.text },
   placeholder: { flex: 1, alignItems: "center", justifyContent: "center" },
   placeholderTitle: { color: t.colors.text, fontSize: t.font.lg, fontWeight: "800" },
-  themeToggle: { position: "absolute", bottom: 56, right: 16 },
+  themeToggle: { position: "absolute", bottom: 66, right: 16 },
 }));

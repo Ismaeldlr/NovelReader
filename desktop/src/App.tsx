@@ -8,6 +8,8 @@ import TopBar from "./pages/TopBar";
 import RandomNovel from "./pages/RandomNovel";
 import Transfer from "./pages/Transfer";
 import "./App.css";
+import ReadingHistory from "./pages/ReadingHistory";
+import NovelFinder from "./pages/NovelFinder";
 
 function AppLayout() {
   return (
@@ -44,6 +46,8 @@ export default function App() {
         <Route path="/search" element={<SearchPage />} />
         <Route path="/random" element={<RandomNovel />} />
         <Route path="/transfer" element={<Transfer />} />
+        <Route path="/ReadingHistory" element={<ReadingHistory />} />
+        <Route path="/NovelFinder" element={<NovelFinder />} />
       </Route>
     </Routes>
   );

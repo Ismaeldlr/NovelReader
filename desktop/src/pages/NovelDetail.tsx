@@ -192,8 +192,9 @@ export default function NovelDetail() {
       const clean = parsed.filter((ch) => {
         const t = (ch.title || "").toLowerCase();
         const badTitle = /(cover|table of contents|contents|toc|copyright|title page)/i.test(t);
+        const isInformation = t.trim() === "information";
         const tooShort = (ch.text || "").replace(/\s+/g, " ").trim().length < 60;
-        return !badTitle && !tooShort;
+        return !badTitle && !isInformation && !tooShort;
       });
 
       if (!clean.length) {
@@ -442,6 +443,7 @@ export default function NovelDetail() {
           <section className="tab-body">
             {tab === "about" && (
               <AboutTab
+                novelId={novel.id}
                 description={novel.description}
                 author={novel.author}
                 lang={novel.lang_original}

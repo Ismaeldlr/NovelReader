@@ -369,6 +369,22 @@ a.chapter-link{color:inherit;text-decoration:none}
 }
 .kv-grid span{ display:block; font-size:.85rem; color:var(--muted); }
 
+/* About tab chips/sections */
+.about-section{ margin:14px 0 10px; }
+.about-section-title{ margin:0 0 6px; font-size:1rem; letter-spacing:.2px; }
+.about-none{ margin:0; color:var(--muted); }
+
+.about-chip-row{
+  display:flex; flex-wrap:wrap; gap:6px;
+}
+.about-chip{
+  padding:2px 8px; border-radius:999px; font-size:12px;
+  background:var(--chip-bg);
+  border:1px solid var(--chip-border);
+  color:var(--text);
+}
+
+
 /* TOC range bar */
 .toc-wrap{ display:grid; gap:10px; }
 
@@ -578,7 +594,7 @@ a.chapter-link{color:inherit;text-decoration:none}
 .library-add-form,
 .library-edit-form{padding:20px 22px 24px;display:grid;gap:16px}
 .library-add-form-row,
-.library-edit-form-row{display:grid;gap:8px}
+.library-edit-form-row{display:grid;gap:8px;}
 
 .library-edit-grid{display:grid;gap:16px;grid-template-columns:1fr 1fr}
 @media (max-width:860px){.library-edit-grid{grid-template-columns:1fr}}
@@ -607,6 +623,15 @@ a.chapter-link{color:inherit;text-decoration:none}
   background: var(--surface-3);
   box-shadow:0 0 0 4px color-mix(in oklab, var(--accent) 25%, transparent)
 }
+
+.library-add-input option,
+.library-edit-input option {
+  background: var(--surface-4);
+  color: black;
+  font: inherit;
+  border-radius: 0; /* Native dropdowns don't support border-radius on options */
+}
+
 .library-edit-input:focus,
 .library-edit-textarea:focus,
 select.library-edit-input:focus{
@@ -657,6 +682,22 @@ select.library-edit-input:focus{
 .library-edit-btn.primary:hover{
   background: linear-gradient(135deg, color-mix(in oklab, var(--accent) 25%, transparent), color-mix(in oklab, var(--accent) 45%, transparent));
 }
+
+/* Add Novel — genres/tags layout */
+.add-choices{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:6px 12px;
+}
+@media (max-width: 620px){
+  .add-choices{ grid-template-columns:1fr; }
+}
+.add-choice{
+  display:flex; align-items:center; gap:8px;
+  font-size:.98rem;
+}
+.add-tags-select{ min-height:160px; }
+
 
 /* =========================================================
    SIDE DRAWER
@@ -905,3 +946,217 @@ select.library-edit-input:focus{
   background: rgba(59,130,246,.12);
   border-color: rgba(59,130,246,.5);
 }
+
+/* =========================
+   Reading History (unique)
+   ========================= */
+.history-page {}
+
+.history-top{
+  display:flex; align-items:center; justify-content:space-between;
+}
+
+.history-title{
+  margin:0;
+}
+
+.history-toolbar{
+  display:flex; align-items:center; gap:8px;
+}
+
+.history-grid{
+  margin-top:10px;
+}
+
+/* Fine-tune the card without touching .card globally */
+.history-card{
+  position:relative;
+}
+
+/* Title row with optional status badge */
+.history-meta-row{
+  display:flex; align-items:center; gap:8px;
+}
+
+/* Small neutral badge for status or tags */
+.history-badge{
+  padding:2px 8px;
+  border-radius:999px;
+  font-size:12px;
+  color:var(--text);
+  background:var(--surface-2);
+  border:1px solid var(--surface-4);
+}
+
+/* Subtle secondary row for timestamps */
+.history-updated{
+  margin-top:6px;
+  font-size:12px;
+  color:var(--muted);
+}
+
+/* History: make ghost buttons look like real buttons (scoped) */
+.history-actions .history-btn{
+  display:inline-flex; align-items:center; gap:8px;
+  height:34px; padding:0 12px; border-radius:10px;
+  border:1px solid var(--surface-4);
+  background:var(--surface-2); color:var(--text);
+  text-decoration:none; /* kill underline on <a> */
+  font-weight:600; letter-spacing:.2px;
+  transition: background .15s ease, border-color .15s ease, transform .08s ease;
+  margin-left: 20px;
+}
+.history-actions .history-btn:hover{ background:var(--surface-3); border-color:var(--surface-5); }
+.history-actions .history-btn:active{ transform:translateY(1px); }
+.history-actions a.history-btn{ text-decoration:none; }
+
+/* Subtle danger tint for Clear */
+.history-actions .history-btn.danger{
+  border-color: color-mix(in oklab, red 40%, var(--surface-4));
+  background: color-mix(in oklab, red 10%, var(--surface-2));
+}
+.history-actions .history-btn.danger:hover{
+  border-color: color-mix(in oklab, red 55%, var(--surface-5));
+  background: color-mix(in oklab, red 18%, var(--surface-3));
+}
+
+/* Load more area */
+.history-loadmore{
+  display:grid; place-items:center; margin-top:16px;
+}
+/* =======================================
+   Novel Finder (scoped, unique classes)
+   ======================================= */
+.finder-page {}
+
+.finder-toolbar{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:10px; margin-bottom:10px;
+}
+.finder-title{ margin:0; }
+.finder-filter-toggle{}
+
+/* ---------- Layout ---------- */
+/* critical: minmax(0,1fr) + min-width:0 on right column wrappers */
+.finder-layout{
+  display:grid;
+  grid-template-columns: clamp(380px, 28vw, 340px) minmax(0, 1fr);
+  gap:16px;
+}
+
+@media (max-width: 979px){
+  .finder-layout{ grid-template-columns: 1fr; }
+}
+
+/* ---------- Sidebar / Drawer ---------- */
+.finder-sidebar{
+  position: sticky;  /* keep filters visible while scrolling */
+  top: 8px;
+  align-self: start;
+  background:var(--panel);
+  border:var(--border);
+  border-radius:12px;
+  padding:12px;
+  max-height: all;
+}
+@media (max-width: 980px){
+  .finder-sidebar{
+    display:none;
+    position:static;
+    max-height:none;
+    overflow:visible;
+  }
+  .finder-layout.filters-open .finder-sidebar{
+    display:block;
+    position:sticky; top:8px; z-index:2;
+    box-shadow:var(--shadow);
+  }
+}
+
+/* ---------- Form fields ---------- */
+.finder-form{ display:grid; gap:12px; }
+.finder-row2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.finder-field{ display:grid; gap:6px; }
+.finder-field label{ font-weight:600; font-size:.95rem; }
+
+.finder-input{
+  height:36px; border-radius:10px; border:1px solid var(--surface-4);
+  background:var(--surface-2); color:var(--text); padding:0 10px;
+}
+.finder-input:focus{ outline:none; border-color:var(--surface-5); }
+
+/* multi-selects - let them grow */
+select.finder-input[multiple]{
+  height:auto; min-height:120px; padding:8px;
+}
+
+/* range (minimal theming) */
+.finder-field input[type="range"]{
+  width:100%;
+  accent-color: var(--accent);
+}
+
+/* segmented controls */
+.finder-seg{
+  display:inline-flex; gap:6px;
+  background:var(--surface-2); border:1px solid var(--surface-4);
+  padding:4px; border-radius:10px;
+}
+.finder-seg button{
+  height:28px; padding:0 10px; border:none; border-radius:8px;
+  background:transparent; color:var(--text); cursor:pointer;
+}
+.finder-seg button.active{
+  background:var(--chip-bg); border:1px solid var(--chip-border);
+}
+.finder-seg.mini{ align-items:center; }
+.finder-seg.mini span{ font-size:.85rem; color:var(--muted); padding:0 4px 0 0; }
+
+/* checkbox grid for genres */
+.finder-choices{
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px 12px;
+}
+@media (max-width: 620px){
+  .finder-choices{ grid-template-columns:1fr; }
+}
+.finder-choice{ display:flex; align-items:center; gap:8px; font-size:.98rem; }
+.finder-choice input{ width:16px; height:16px; }
+
+/* actions in sidebar */
+.finder-actions{ display:flex; gap:10px; justify-content:flex-end; margin-top:4px; }
+.finder-btn{ min-width:120px; }
+
+/* ---------- Results ---------- */
+.finder-results{ min-height:200px; min-width:0; }      /* allow shrink */
+.finder-list{ display:grid; gap:12px; min-width:0; }
+.finder-card{
+  display:grid; grid-template-columns:140px minmax(0,1fr);
+  align-items:start; overflow:hidden; min-width:0;
+}
+.finder-meta{ min-width:0; }
+
+/* row bits / chips */
+.finder-title-row{ display:flex; align-items:center; gap:8px; }
+.finder-badge{
+  padding:2px 8px; border-radius:999px; font-size:12px;
+  background:var(--surface-2); border:1px solid var(--surface-4); color:var(--text);
+}
+.finder-kv{
+  display:grid; grid-template-columns:120px 1fr; gap:6px 10px;
+  margin-top:6px; font-size:.95rem; color:var(--muted);
+}
+.finder-kv b{ color:var(--text); font-weight:700; }
+
+.finder-chips{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.finder-chip{
+  padding:2px 8px; border-radius:999px; font-size:12px;
+  background:var(--chip-bg); border:1px solid var(--chip-border);
+}
+
+.finder-row-actions{ display:flex; gap:8px; margin-top:10px; }
+
+/* load more */
+.finder-loadmore{
+  display:grid; place-items:center; margin-top:14px;
+}
+
