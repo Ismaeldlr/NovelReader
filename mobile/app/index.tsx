@@ -127,5 +127,4 @@ const styles = createStyles((t) => StyleSheet.create({
   tabLabelActive: { color: t.colors.text },
   placeholder: { flex: 1, alignItems: "center", justifyContent: "center" },
   placeholderTitle: { color: t.colors.text, fontSize: t.font.lg, fontWeight: "800" },
-  themeToggle: { position: "absolute", bottom: 86, right: 16 },
 }));
