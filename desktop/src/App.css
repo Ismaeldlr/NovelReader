@@ -950,8 +950,6 @@ select.library-edit-input:focus{
 /* =========================
    Reading History (unique)
    ========================= */
-.history-page {}
-
 .history-top{
   display:flex; align-items:center; justify-content:space-between;
 }
@@ -1027,15 +1025,12 @@ select.library-edit-input:focus{
 /* =======================================
    Novel Finder (scoped, unique classes)
    ======================================= */
-.finder-page {}
 
 .finder-toolbar{
   display:flex; align-items:center; justify-content:space-between;
   gap:10px; margin-bottom:10px;
 }
 .finder-title{ margin:0; }
-.finder-filter-toggle{}
-
 /* ---------- Layout ---------- */
 /* critical: minmax(0,1fr) + min-width:0 on right column wrappers */
 .finder-layout{

@@ -1,6 +1,6 @@
 import { ThemeProvider, useTheme } from "../src/theme";
 import { Stack } from "expo-router";
-import { StatusBar, View, StyleSheet } from "react-native";
+import { StatusBar, View} from "react-native";
 
 
 export default function RootLayout() {
@@ -14,12 +14,10 @@ export default function RootLayout() {
 }
 
 function ThemedLayout() {
-  const { theme, mode } = useTheme();
+  const { mode } = useTheme();
   return (
     <>
       <Stack screenOptions={{ headerShown: false, animation: "fade", contentStyle: { backgroundColor: "black" } }} />
-      <StatusBar translucent backgroundColor="transparent" barStyle={mode === "dark" ? "light-content" : "dark-content"} />
-      <View style={{ height: StatusBar.currentHeight, backgroundColor: theme.colors.bg  }} />
     </>
   );
 }
