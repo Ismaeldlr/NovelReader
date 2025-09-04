@@ -1,6 +1,6 @@
 // pages/Transfer.tsx
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useMemo, useRef, useState } from "react";
+import { Link, useLocation } from "react-router-dom";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { initDb } from "../db/init";
@@ -73,7 +73,6 @@ type ExportJSON = {
 
 export default function Transfer() {
   const location = useLocation();
-  const nav = useNavigate();
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const mode = (params.get("mode") as Mode) || "import";
 

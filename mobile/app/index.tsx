@@ -84,13 +84,6 @@ export default function Index() {
             );
           })}
         </View>
-
-        {/* Example theme toggle (dev only) */}
-        <View style={s.themeToggle}>
-          <Pressable onPress={() => setMode(mode === "dark" ? "light" : "dark")}>
-            <Text style={{ color: theme.colors.textDim }}>Toggle theme ({mode})</Text>
-          </Pressable>
-        </View>
       </View>
     </View>
   );
@@ -115,23 +108,23 @@ const styles = createStyles((t) => StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: t.colors.border,
     backgroundColor: t.colors.card,
-
   },
   tab: { 
     flex: 1, 
     paddingVertical: t.spacing(2), 
     alignItems: "center", 
-    justifyContent: "center" 
+    justifyContent: "center",
+    
   },
   tabActive: { backgroundColor: "rgba(127,127,127,0.08)" },
   tabLabel: { 
     color: t.colors.textDim, 
     fontSize: 12, 
     fontWeight: "600", 
-    marginTop: 2 
+    marginTop: 2,
+    marginBottom: 18
   },
   tabLabelActive: { color: t.colors.text },
   placeholder: { flex: 1, alignItems: "center", justifyContent: "center" },
   placeholderTitle: { color: t.colors.text, fontSize: t.font.lg, fontWeight: "800" },
-  themeToggle: { position: "absolute", bottom: 66, right: 16 },
 }));

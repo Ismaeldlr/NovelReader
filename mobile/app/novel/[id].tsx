@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, FlatList, Modal, TouchableOpacity, Platform } from "react-native";
+import { View, Text, StyleSheet, Pressable, FlatList, Modal, TouchableOpacity } from "react-native";
 import { useLocalSearchParams, useRouter, Link } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme, createStyles } from "../../src/theme";
 import { initDb } from "../../src/db";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
+import AddChaptersEPUB from "../Components/AddChaptersEPUB";
+import EditNovelSheet from "../Components/EditNovelSheet";
 
 type NovelRow = {
   id: number;
@@ -41,6 +43,14 @@ export default function NovelDetail() {
   const [msg, setMsg] = useState("Loading…");
   const [menuOpen, setMenuOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+
+  // NEW: confirmation modal state
+  const [confirmDel, setConfirmDel] = useState<{ open: boolean; chapterId: number | null }>({
+    open: false,
+    chapterId: null,
+  });
 
   const dbRef = useRef<any>(null);
 
@@ -93,6 +103,20 @@ export default function NovelDetail() {
     await reloadAll();
   }
 
+  // NEW: helpers to open/confirm/cancel deletion
+  function askDeleteChapter(cid: number) {
+    setConfirmDel({ open: true, chapterId: cid });
+  }
+  async function confirmDeleteChapter() {
+    if (confirmDel.chapterId != null) {
+      await deleteChapter(confirmDel.chapterId);
+    }
+    setConfirmDel({ open: false, chapterId: null });
+  }
+  function cancelDeleteChapter() {
+    setConfirmDel({ open: false, chapterId: null });
+  }
+
   async function nextSeq(): Promise<number> {
     const db = dbRef.current; if (!db) return 1;
     const rows = await db.select(`SELECT IFNULL(MAX(seq),0) AS max_seq FROM chapters WHERE novel_id = ?`, [novelId]);
@@ -104,7 +128,6 @@ export default function NovelDetail() {
     const db = dbRef.current; if (!db) return;
     const seq = await nextSeq();
 
-    // Create chapter
     await db.execute(
       `INSERT INTO chapters (novel_id, seq, volume, display_title) VALUES (?, ?, ?, ?)`,
       [novel.id, seq, null, null]
@@ -112,20 +135,11 @@ export default function NovelDetail() {
     const cidRow = await db.select(`SELECT last_insert_rowid() AS id`);
     const chapterId = cidRow[0].id as number;
 
-    // Minimal primary variant (required by NOT NULL content)
     await db.execute(
       `INSERT INTO chapter_variants
        (chapter_id, variant_type, lang, title, content, source_url, provider, model_name, is_primary)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        chapterId,
-        "original",
-        novel.lang_original ?? "en",
-        null,
-        "", // empty content placeholder
-        null, null, null,
-        1,
-      ]
+      [chapterId, "original", novel.lang_original ?? "en", null, "", null, null, null, 1]
     );
 
     setAddOpen(false);
@@ -144,8 +158,6 @@ export default function NovelDetail() {
     const asset = res.assets[0];
     const uri = asset.uri;
     const name = asset.name ?? "Chapter";
-
-    // Read file as string (UTF-8)
     const content = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.UTF8 });
 
     const db = dbRef.current; if (!db) return;
@@ -162,15 +174,7 @@ export default function NovelDetail() {
       `INSERT INTO chapter_variants
        (chapter_id, variant_type, lang, title, content, source_url, provider, model_name, is_primary)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        chapterId,
-        "original",
-        novel.lang_original ?? "en",
-        stripExt(name),
-        content ?? "",
-        null, null, null,
-        1,
-      ]
+      [chapterId, "original", novel.lang_original ?? "en", stripExt(name), content ?? "", null, null, null, 1]
     );
 
     setAddOpen(false);
@@ -180,13 +184,6 @@ export default function NovelDetail() {
   function stripExt(n: string) {
     const i = n.lastIndexOf(".");
     return i > 0 ? n.slice(0, i) : n;
-  }
-
-  function onImportEpub() {
-    // Placeholder: EPUB parsing on RN requires reading the EPUB (zip) and parsing content.
-    // We can implement with JSZip + simple spine parsing in a follow-up.
-    setAddOpen(false);
-    setMsg("EPUB import: coming soon on mobile.");
   }
 
   return (
@@ -211,23 +208,39 @@ export default function NovelDetail() {
       ) : (
         <>
           <View style={s.hero}>
-            <View style={s.coverLg}>
-              <Text style={s.coverText}>{initials(novel.title)}</Text>
-
-              <View style={s.menuWrap}>
-                <Pressable onPress={() => setMenuOpen(v => !v)} style={s.menuBtn} accessibilityRole="button">
-                  <Text style={s.menuDot}>⋮</Text>
-                </Pressable>
-                {menuOpen && (
-                  <View style={s.menu}>
-                    {/* Edit modal could go here later */}
-                    <Pressable style={s.menuItem} onPress={() => removeNovel(novel.id)}>
-                      <Ionicons name="trash-outline" size={18} color={theme.colors.text} />
-                      <Text style={s.menuLabel}>Remove from Library</Text>
-                    </Pressable>
-                  </View>
-                )}
+            {/* Cover box anchors overlay & dropdown outside rounded clipping */}
+            <View style={s.coverBox}>
+              <View style={s.coverLg}>
+                <Text style={s.coverText}>{initials(novel.title)}</Text>
               </View>
+
+              {/* Overlay buttons */}
+              <View style={s.overlayBtns}>
+                <Pressable style={s.iconBtn} onPress={() => setMenuOpen(v => !v)}>
+                  <Ionicons name="ellipsis-vertical" size={16} color="#fff" />
+                </Pressable>
+              </View>
+
+              {menuOpen && (
+                <View style={s.menu}>
+                  <Pressable
+                    style={s.menuItem}
+                    onPress={() => { setMenuOpen(false); setEditOpen(true); }}
+                  >
+                    <Ionicons name="create-outline" size={18} color={theme.colors.text} />
+                    <Text style={s.menuLabel}>Edit novel</Text>
+                  </Pressable>
+
+                  <Pressable
+                    style={s.menuItem}
+                    onPress={() => { setMenuOpen(false); removeNovel(novel.id); }}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={theme.colors.text} />
+                    <Text style={s.menuLabel}>Remove from Library</Text>
+                  </Pressable>
+                </View>
+              )}
+
             </View>
 
             <View style={s.meta}>
@@ -248,7 +261,7 @@ export default function NovelDetail() {
             {chapters.length === 0 ? (
               <View style={s.emptySmall}>
                 <Text style={s.emptySmallText}>No chapters yet.</Text>
-                <Text style={s.emptySmallSub}>Use “Add Chapter” → Empty / TXT.</Text>
+                <Text style={s.emptySmallSub}>Use “Add Chapter” → Empty / TXT / EPUB.</Text>
               </View>
             ) : (
               <FlatList
@@ -259,14 +272,22 @@ export default function NovelDetail() {
                 renderItem={({ item }) => (
                   <Pressable
                     style={s.chapterRow}
-                    onPress={() => router.push({ pathname: "/novel/[id]/chapter/[chapterId]", params: { id: String(novelId), chapterId: String(item.id) } })}
-                    android_ripple={{ color: '#222' }}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/novel/[id]/chapter/[chapterId]",
+                        params: { id: String(novelId), chapterId: String(item.id) },
+                      })
+                    }
+                    android_ripple={{ color: "#222" }}
                   >
                     <View style={s.chip}><Text style={s.chipTxt}>#{item.seq}</Text></View>
                     <Text style={s.chTitle} numberOfLines={1}>
                       {item.display_title || `Chapter ${item.seq}`}
                     </Text>
-                    <Pressable onPress={(e) => { e.stopPropagation(); deleteChapter(item.id); }} style={s.deleteBtn}>
+                    <Pressable
+                      onPress={(e) => { e.stopPropagation(); askDeleteChapter(item.id); }}
+                      style={s.deleteBtn}
+                    >
                       <Ionicons name="trash-outline" size={18} color={theme.colors.text} />
                     </Pressable>
                   </Pressable>
@@ -277,11 +298,9 @@ export default function NovelDetail() {
         </>
       )}
 
-      {/* Add Chapter Menu (modal) */}
+      {/* Add Chapter Menu */}
       <Modal transparent visible={addOpen} animationType="fade" onRequestClose={() => setAddOpen(false)}>
-        <Pressable style={s.modalBackdrop} onPress={() => setAddOpen(false)}>
-          <View />
-        </Pressable>
+        <Pressable style={s.modalBackdrop} onPress={() => setAddOpen(false)} />
         <View style={s.addMenu}>
           <Text style={s.addTitle}>Add Chapter</Text>
           <TouchableOpacity style={s.addItem} onPress={onAddEmpty}>
@@ -292,21 +311,63 @@ export default function NovelDetail() {
             <Ionicons name="document-text-outline" size={20} color={theme.colors.text} />
             <Text style={s.addLabel}>Import TXT</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.addItem} onPress={onImportEpub}>
+          <TouchableOpacity
+            style={s.addItem}
+            onPress={() => { setAddOpen(false); setImportOpen(true); }}
+          >
             <Ionicons name="book-outline" size={20} color={theme.colors.text} />
-            <Text style={s.addLabel}>Import EPUB (soon)</Text>
+            <Text style={s.addLabel}>Import EPUB</Text>
           </TouchableOpacity>
+
           <TouchableOpacity style={[s.addItem, { justifyContent: "center" }]} onPress={() => setAddOpen(false)}>
             <Text style={[s.addLabel, { color: theme.colors.textDim }]}>Cancel</Text>
           </TouchableOpacity>
+        </View>
+      </Modal>
+
+      {/* EPUB importer sheet */}
+      <AddChaptersEPUB
+        visible={importOpen}
+        novelId={novelId}
+        onClose={() => setImportOpen(false)}
+        onImported={() => { setImportOpen(false); reloadAll(); }}
+      />
+
+      {/* Edit sheet */}
+      <EditNovelSheet
+        visible={editOpen}
+        novelId={novelId}
+        onClose={() => setEditOpen(false)}
+        onSaved={() => { setEditOpen(false); reloadAll(); }}
+      />
+
+      {/* NEW: Confirm delete chapter modal */}
+      <Modal transparent visible={confirmDel.open} animationType="fade" onRequestClose={cancelDeleteChapter}>
+        <Pressable style={s.modalBackdrop} onPress={cancelDeleteChapter} />
+        <View style={s.centerWrap}>
+          <View style={s.confirmCard}>
+            <Text style={s.confirmText}>Are you sure you want to delete the chapter?</Text>
+            <View style={s.confirmActions}>
+              <Pressable style={s.btnGhost} onPress={cancelDeleteChapter}>
+                <Text style={s.btnGhostText}>No</Text>
+              </Pressable>
+              <View style={{ flex: 1 }} />
+              <Pressable style={s.btn} onPress={confirmDeleteChapter}>
+                <Text style={s.btnText}>Yes</Text>
+              </Pressable>
+            </View>
+          </View>
         </View>
       </Modal>
     </View>
   );
 }
 
+const COVER_W = 120;
+const COVER_H = 160;
+
 const styles = createStyles((t) => StyleSheet.create({
-  page: { flex: 1, backgroundColor: t.colors.bg, padding: t.spacing(4)},
+  page: { flex: 1, backgroundColor: t.colors.bg, padding: t.spacing(4) },
   topbar: { flexDirection: "row", justifyContent: "flex-end", alignItems: "flex-end", marginBottom: t.spacing(5), marginTop: t.spacing(10) },
   title: { color: t.colors.text, fontSize: t.font.xl, fontWeight: "800" },
   btn: { backgroundColor: t.colors.tint, paddingVertical: t.spacing(2), paddingHorizontal: t.spacing(3), borderRadius: t.radius.md },
@@ -315,18 +376,36 @@ const styles = createStyles((t) => StyleSheet.create({
   btnGhostText: { color: t.colors.textDim, fontWeight: "700" },
 
   hero: { flexDirection: "row", gap: 16, alignItems: "flex-start" },
+
+  // Cover region
+  coverBox: { width: COVER_W, height: COVER_H, position: "relative" },
   coverLg: {
-    width: 96, height: 128, borderRadius: t.radius.lg, backgroundColor: "#1b222c",
-    alignItems: "center", justifyContent: "center", position: "relative"
+    width: "100%", height: "100%",
+    borderRadius: t.radius.lg, backgroundColor: "#1b222c",
+    alignItems: "center", justifyContent: "center",
   },
   coverText: { color: "#c3c7d1", fontSize: 20, fontWeight: "800" },
 
-  menuWrap: { position: "absolute", top: 6, right: 6 },
-  menuBtn: { paddingHorizontal: 8, paddingVertical: 4 },
-  menuDot: { color: t.colors.text, fontSize: 18 },
+  overlayBtns: {
+    position: "absolute", top: 6, right: 6,
+    flexDirection: "row", gap: 6,
+  },
+  iconBtn: {
+    width: 28, height: 28, borderRadius: 14,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.35)",
+    borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.25)",
+  },
+
+  // Dropdown is anchored to the coverBox (not clipped by rounded cover)
   menu: {
-    position: "absolute", top: 28, right: 0, backgroundColor: t.colors.card,
-    borderRadius: t.radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border, overflow: "hidden"
+    position: "absolute", top: 40, left: 86,
+    backgroundColor: t.colors.card,
+    borderRadius: t.radius.md,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border,
+    overflow: "hidden",
+    zIndex: 20, elevation: 6,
+    shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
   },
   menuItem: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 12 },
   menuLabel: { color: t.colors.text },
@@ -335,9 +414,7 @@ const styles = createStyles((t) => StyleSheet.create({
   h2: { color: t.colors.text, fontSize: t.font.lg, fontWeight: "800" },
   author: { color: t.colors.textDim, marginTop: 4 },
   desc: { color: t.colors.textDim, marginTop: 8 },
-  kv: {
-    marginTop: 12, columnGap: 8, rowGap: 6, flexDirection: "row", flexWrap: "wrap", alignItems: "center"
-  },
+  kv: { marginTop: 12, columnGap: 8, rowGap: 6, flexDirection: "row", flexWrap: "wrap", alignItems: "center" },
   kLabel: { color: t.colors.textDim },
   kVal: { color: t.colors.text, fontWeight: "600", marginRight: 12 },
   statusMsg: { color: t.colors.textDim, marginTop: 8, fontSize: t.font.sm },
@@ -363,6 +440,7 @@ const styles = createStyles((t) => StyleSheet.create({
   chTitle: { flex: 1, color: t.colors.text },
   deleteBtn: { paddingHorizontal: 6, paddingVertical: 6 },
 
+  // Add menu
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)" },
   addMenu: {
     position: "absolute", left: 16, right: 16, bottom: 24,
@@ -373,4 +451,17 @@ const styles = createStyles((t) => StyleSheet.create({
   addTitle: { color: t.colors.text, fontWeight: "800", fontSize: t.font.md, marginBottom: 8 },
   addItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 6 },
   addLabel: { color: t.colors.text, fontWeight: "600" },
+
+  // Confirm dialog
+  centerWrap: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  confirmCard: {
+    width: "84%",
+    backgroundColor: t.colors.card,
+    borderRadius: t.radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.colors.border,
+    padding: 16,
+  },
+  confirmText: { color: t.colors.text, fontWeight: "700", marginBottom: 12 },
+  confirmActions: { flexDirection: "row", alignItems: "center" },
 }));

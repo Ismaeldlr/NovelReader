@@ -14,8 +14,24 @@ function base64ToUint8Array(b64: string): Uint8Array {
   return bytes;
 }
 
+const nowSec = () => Math.floor(Date.now() / 1000);
+const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+function slugify(input: string) {
+  return input
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+/* ==========================
+   Export format (v1 & v2)
+   ========================== */
 type ExportJSON = {
-  version: number;
+  version: 1 | 2;
   exported_at: number;
   novels: Array<{
     title: string;
@@ -27,6 +43,17 @@ type ExportJSON = {
     slug: string | null;
     created_at: number;
     updated_at: number;
+
+    // v2 additions (optional in typing for back-compat with v1)
+    genres?: string[];
+    tags?: string[];
+    reading_state?: Array<{
+      device_id: string;
+      chapter_seq: number;
+      position_pct: number; // 0..1
+      updated_at: number;
+    }>;
+
     chapters: Array<{
       seq: number;
       volume: number | null;
@@ -41,11 +68,18 @@ type ExportJSON = {
         source_url: string | null;
         provider: string | null;
         model_name: string | null;
-        is_primary: number;
+        is_primary: number; // 0/1
         created_at: number;
         updated_at: number;
       }>;
       bookmarks: Array<{
+        position_pct: number;
+        device_id: string;
+        created_at: number;
+        updated_at: number;
+      }>;
+      // v2 addition
+      reading_progress?: Array<{
         position_pct: number;
         device_id: string;
         created_at: number;
@@ -74,6 +108,22 @@ export default function ImportScreen() {
     await doImport(res.assets[0].uri);
   }
 
+  async function upsertByName(db: any, table: "tags" | "genres", name: string): Promise<number | null> {
+    const nm = (name ?? "").trim();
+    if (!nm) return null;
+    const sl = slugify(nm);
+
+    // Insert or ignore; then read id by name (or slug as a fallback)
+    await db.execute(
+      `INSERT OR IGNORE INTO ${table} (name, slug, created_at${table === "tags" ? ", updated_at" : ""})
+       VALUES (?, ?, unixepoch()${table === "tags" ? ", unixepoch()" : ""})`,
+      [nm, sl]
+    );
+
+    const rows = await db.select(`SELECT id FROM ${table} WHERE name = ? OR slug = ? LIMIT 1`, [nm, sl]);
+    return rows?.[0]?.id ?? null;
+  }
+
   async function doImport(uri: string) {
     setBusy(true); setErr(null); setPct(0);
     try {
@@ -85,35 +135,66 @@ export default function ImportScreen() {
       if (!entry) throw new Error("data.json not found in ZIP");
       const text = await entry.async("string");
       const data: ExportJSON = JSON.parse(text);
-      if (!data || data.version !== 1) throw new Error("Unsupported or missing export version.");
+      if (!data || (data.version !== 1 && data.version !== 2)) {
+        throw new Error("Unsupported or missing export version.");
+      }
 
       setMsg("Opening database…");
       const db = await initDb();
 
-      setMsg("Importing (transaction) …");
+      setMsg("Importing (transaction)…");
       await db.execute("BEGIN IMMEDIATE");
 
       const total = data.novels.length;
       let count = 0;
 
       for (const n of data.novels) {
+        // 1) Create novel
         await db.execute(
           `INSERT INTO novels (title, author, description, cover_path, lang_original, status, slug, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
-            n.title.trim(),
+            (n.title ?? "").trim() || "Untitled",
             n.author ?? null,
             n.description ?? null,
             n.cover_path ?? null,
             n.lang_original ?? null,
             n.status ?? null,
             n.slug ?? null,
-            n.created_at ?? Math.floor(Date.now()/1000),
-            n.updated_at ?? Math.floor(Date.now()/1000),
+            n.created_at ?? nowSec(),
+            n.updated_at ?? nowSec(),
           ]
         );
         const row = await db.select(`SELECT last_insert_rowid() AS id`);
         const newNovelId = row[0].id as number;
+
+        // 2) v2 metadata facets (genres/tags)
+        if (data.version === 2) {
+          const genres = Array.isArray(n.genres) ? n.genres : [];
+          const tags = Array.isArray(n.tags) ? n.tags : [];
+
+          for (const g of genres) {
+            const gid = await upsertByName(db, "genres", g);
+            if (gid != null) {
+              await db.execute(
+                `INSERT OR IGNORE INTO novel_genres (novel_id, genre_id) VALUES (?, ?)`,
+                [newNovelId, gid]
+              );
+            }
+          }
+          for (const tname of tags) {
+            const tid = await upsertByName(db, "tags", tname);
+            if (tid != null) {
+              await db.execute(
+                `INSERT OR IGNORE INTO novel_tags (novel_id, tag_id) VALUES (?, ?)`,
+                [newNovelId, tid]
+              );
+            }
+          }
+        }
+
+        // 3) Chapters (track seq -> id map)
+        const seqToId = new Map<number, number>();
 
         for (const ch of n.chapters) {
           await db.execute(
@@ -124,14 +205,16 @@ export default function ImportScreen() {
               ch.seq,
               ch.volume ?? null,
               ch.display_title ?? null,
-              ch.created_at ?? Math.floor(Date.now()/1000),
-              ch.updated_at ?? Math.floor(Date.now()/1000),
+              ch.created_at ?? nowSec(),
+              ch.updated_at ?? nowSec(),
             ]
           );
           const chRow = await db.select(`SELECT last_insert_rowid() AS id`);
           const newChapterId = chRow[0].id as number;
+          seqToId.set(ch.seq, newChapterId);
 
-          for (const v of ch.variants) {
+          // variants
+          for (const v of ch.variants || []) {
             await db.execute(
               `INSERT INTO chapter_variants
                (chapter_id, variant_type, lang, title, content, source_url, provider, model_name, is_primary, created_at, updated_at)
@@ -146,22 +229,67 @@ export default function ImportScreen() {
                 v.provider ?? null,
                 v.model_name ?? null,
                 v.is_primary ? 1 : 0,
-                v.created_at ?? Math.floor(Date.now()/1000),
-                v.updated_at ?? Math.floor(Date.now()/1000),
+                v.created_at ?? nowSec(),
+                v.updated_at ?? nowSec(),
               ]
             );
           }
 
-          for (const b of ch.bookmarks ?? []) {
+          // bookmarks
+          for (const b of ch.bookmarks || []) {
             await db.execute(
               `INSERT INTO bookmarks (chapter_id, position_pct, device_id, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?)`,
               [
                 newChapterId,
-                Number.isFinite(b.position_pct) ? b.position_pct : 0,
-                (b.device_id ?? "").slice(0, 128),
-                b.created_at ?? Math.floor(Date.now()/1000),
-                b.updated_at ?? Math.floor(Date.now()/1000),
+                Number.isFinite(b.position_pct) ? clamp01(b.position_pct) : 0,
+                String(b.device_id ?? "").slice(0, 128),
+                b.created_at ?? nowSec(),
+                b.updated_at ?? nowSec(),
+              ]
+            );
+          }
+
+          // v2: per-chapter reading_progress
+          if (data.version === 2 && Array.isArray(ch.reading_progress)) {
+            for (const rp of ch.reading_progress) {
+              await db.execute(
+                `INSERT INTO reading_progress (novel_id, chapter_id, position_pct, device_id, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(chapter_id, device_id) DO UPDATE SET
+                   position_pct = excluded.position_pct,
+                   updated_at   = excluded.updated_at`,
+                [
+                  newNovelId,
+                  newChapterId,
+                  Number.isFinite(rp.position_pct) ? clamp01(rp.position_pct) : 0,
+                  String(rp.device_id ?? "").slice(0, 128),
+                  rp.created_at ?? nowSec(),
+                  rp.updated_at ?? nowSec(),
+                ]
+              );
+            }
+          }
+        }
+
+        // 4) v2: reading_state (seq-based → map to chapter_id)
+        if (data.version === 2 && Array.isArray(n.reading_state)) {
+          for (const rs of n.reading_state) {
+            const chId = seqToId.get(rs.chapter_seq);
+            if (!chId) continue; // skip if seq not found
+            await db.execute(
+              `INSERT INTO reading_state (novel_id, chapter_id, position_pct, device_id, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(novel_id, device_id) DO UPDATE SET
+                 chapter_id   = excluded.chapter_id,
+                 position_pct = excluded.position_pct,
+                 updated_at   = excluded.updated_at`,
+              [
+                newNovelId,
+                chId,
+                Number.isFinite(rs.position_pct) ? clamp01(rs.position_pct) : 0,
+                String(rs.device_id ?? "").slice(0, 128),
+                rs.updated_at ?? nowSec(),
               ]
             );
           }
