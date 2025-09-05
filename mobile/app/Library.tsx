@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { View, Text, FlatList, Pressable, StyleSheet, Image } from "react-native";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme, createStyles } from "../src/theme";
 import { initDb } from "../src/db";
 import AddNovelSheet from "./Components/AddNovelSheet";
@@ -17,6 +18,12 @@ export default function Library() {
   const [novels, setNovels] = useState<NovelRow[]>([]);
   const [status, setStatus] = useState("Loading…");
   const [addOpen, setAddOpen] = useState(false);
+
+  // menu + edit state
+  const [menuForId, setMenuForId] = useState<number | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+
   const dbRef = useRef<any>(null);
 
   useEffect(() => {
@@ -49,10 +56,10 @@ export default function Library() {
 
   function normalizeCoverUri(p?: string | null) {
     if (!p) return null;
-    if (/^(file|content|https?):|^data:/.test(p)) return p; // already a URI
-    // bare relative/absolute path -> treat as local file
+    if (/^(file|content|https?):|^data:/.test(p)) return p;
     return "file://" + p.replace(/^\/+/, "");
   }
+
   return (
     <View style={s.container}>
       <View style={s.header}>
@@ -88,17 +95,48 @@ export default function Library() {
                   <Text style={s.coverText}>{initials(item.title)}</Text>
                 )}
               </View>
+
               <View style={s.meta}>
                 <Text numberOfLines={1} style={s.title}>{item.title}</Text>
                 <Text numberOfLines={1} style={s.author}>{item.author || "Unknown author"}</Text>
                 {!!item.description && <Text numberOfLines={2} style={s.desc}>{item.description}</Text>}
               </View>
-              <Pressable onPress={() => removeNovel(item.id)} onPressIn={(e) => e.stopPropagation()} style={s.menuBtn}>
-                <Text style={s.menuText}>⋮</Text>
+
+              {/* overflow button */}
+              <Pressable
+                onPress={(e) => { e.stopPropagation(); setMenuForId(menuForId === item.id ? null : item.id); }}
+                style={s.menuBtn}
+              >
+                <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
               </Pressable>
+
+              {/* per-item menu (above scrim via zIndex/elevation) */}
+              {menuForId === item.id && (
+                <View style={s.menu}>
+                  <Pressable
+                    style={s.menuItem}
+                    onPress={(e) => { e.stopPropagation(); setMenuForId(null); setEditId(item.id); setEditOpen(true); }}
+                  >
+                    <Ionicons name="create-outline" size={18} color={theme.colors.text} />
+                    <Text style={s.menuLabel}>Edit novel</Text>
+                  </Pressable>
+                  <Pressable
+                    style={s.menuItem}
+                    onPress={(e) => { e.stopPropagation(); setMenuForId(null); removeNovel(item.id); }}
+                  >
+                    <Ionicons name="trash-outline" size={18} color={theme.colors.text} />
+                    <Text style={s.menuLabel}>Remove from Library</Text>
+                  </Pressable>
+                </View>
+              )}
             </Pressable>
           )}
         />
+      )}
+
+      {/* Full-screen scrim to close any open menu (below menu) */}
+      {menuForId != null && (
+        <Pressable style={s.scrim} onPress={() => setMenuForId(null)} />
       )}
 
       {/* Floating + button */}
@@ -111,6 +149,14 @@ export default function Library() {
         onClose={() => setAddOpen(false)}
         onAdded={() => { setAddOpen(false); reload(); }}
       />
+
+      {/* Edit sheet */}
+      <EditNovelSheet
+        visible={editOpen}
+        novelId={editId ?? 0}
+        onClose={() => setEditOpen(false)}
+        onSaved={() => { setEditOpen(false); reload(); }}
+      />
     </View>
   );
 }
@@ -121,7 +167,9 @@ function initials(title: string) {
 }
 
 const styles = createStyles((t) => StyleSheet.create({
-  container: { flex: 1, backgroundColor: t.colors.bg },
+  // make this a positioning context for the scrim
+  container: { flex: 1, backgroundColor: t.colors.bg, position: "relative" },
+
   header: {
     paddingVertical: t.spacing(4),
     paddingHorizontal: t.spacing(4),
@@ -137,19 +185,20 @@ const styles = createStyles((t) => StyleSheet.create({
   emptySub: { color: t.colors.textDim },
 
   card: {
+    position: "relative",
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: t.colors.card,
     borderRadius: t.radius.lg,
     padding: t.spacing(3),
-    gap: t.spacing(3),
+    gap: t.spacing(2),
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: t.colors.border,
   },
   cover: {
-    width: 76, height: 112,
+    width: 96, height: 142,
     borderRadius: t.radius.md,
-    overflow: "hidden",                // so the image respects rounding
+    overflow: "hidden",
     backgroundColor: "#1b222c",
     alignItems: "center", justifyContent: "center",
   },
@@ -160,8 +209,30 @@ const styles = createStyles((t) => StyleSheet.create({
   title: { color: t.colors.text, fontSize: t.font.md, fontWeight: "700" },
   author: { color: t.colors.textDim, marginTop: 2 },
   desc: { color: t.colors.textDim, marginTop: 6, fontSize: t.font.sm },
+
   menuBtn: { paddingHorizontal: 8, paddingVertical: 4 },
-  menuText: { color: t.colors.text, fontSize: 18 },
+
+  menu: {
+    position: "absolute",
+    top: 80,
+    right: 8,
+    backgroundColor: t.colors.card,
+    borderRadius: t.radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.colors.border,
+    overflow: "hidden",
+    zIndex: 101,           
+    elevation: 12,         
+    shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
+  },
+  scrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "transparent",
+    zIndex: 100,
+    elevation: 8,
+  },
+  menuItem: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 12 },
+  menuLabel: { color: t.colors.text },
 
   fab: {
     position: "absolute",

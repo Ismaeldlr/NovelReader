@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, FlatList, Modal, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet, Pressable, FlatList, Modal, TouchableOpacity, Image, ScrollView } from "react-native";
 import { useLocalSearchParams, useRouter, Link } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme, createStyles } from "../../src/theme";
@@ -9,7 +9,8 @@ import * as FileSystem from "expo-file-system";
 import AddChaptersEPUB from "../Components/AddChaptersEPUB";
 import EditNovelSheet from "../Components/EditNovelSheet";
 
-type NovelRow = {
+// ---- Types (same shape you used) ----
+export type NovelRow = {
   id: number;
   title: string;
   author: string | null;
@@ -21,8 +22,7 @@ type NovelRow = {
   created_at?: number;
   updated_at?: number;
 };
-
-type ChapterRow = {
+export type ChapterRow = {
   id: number;
   seq: number;
   volume: number | null;
@@ -31,6 +31,20 @@ type ChapterRow = {
   updated_at: number;
 };
 
+// ---- Helpers ----
+function normalizeCoverUri(p?: string | null): string | null {
+  if (!p) return null;
+  if (/^(file|content|https?):|^data:/.test(p)) return p;
+  return "file://" + p.replace(/^\/+/, "");
+}
+
+// Tabs
+type TabKey = "about" | "toc";
+
+// Lazy tab components
+import AboutTab from "./[id]/AboutTab";
+import TableOfContentsTab from "./[id]/TableOfContentsTab";
+
 export default function NovelDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const novelId = useMemo(() => Number(id), [id]);
@@ -38,19 +52,19 @@ export default function NovelDetail() {
   const { theme } = useTheme();
   const s = styles(theme);
 
+  // Page state
+  const [activeTab, setActiveTab] = useState<TabKey>("about");
   const [novel, setNovel] = useState<NovelRow | null>(null);
   const [chapters, setChapters] = useState<ChapterRow[]>([]);
   const [msg, setMsg] = useState("Loading…");
+
+  // Menus / modals
   const [menuOpen, setMenuOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-
-  // NEW: confirmation modal state
-  const [confirmDel, setConfirmDel] = useState<{ open: boolean; chapterId: number | null }>({
-    open: false,
-    chapterId: null,
-  });
+  const [confirmDel, setConfirmDel] = useState<{ open: boolean; chapterId: number | null }>({ open: false, chapterId: null });
+  const [confirmDelNovel, setConfirmDelNovel] = useState(false);
 
   const dbRef = useRef<any>(null);
 
@@ -68,6 +82,7 @@ export default function NovelDetail() {
   async function reloadAll() {
     const db = dbRef.current;
     if (!db) return;
+
     const n = await db.select(
       `SELECT id, title, author, description, cover_path, lang_original, status, slug, created_at, updated_at
        FROM novels WHERE id = ?`,
@@ -99,11 +114,10 @@ export default function NovelDetail() {
   async function deleteChapter(cid: number) {
     const db = dbRef.current;
     if (!db) return;
-    await db.execute(`DELETE FROM chapters WHERE id = ?`, [cid]); // cascades
+    await db.execute(`DELETE FROM chapters WHERE id = ?`, [cid]);
     await reloadAll();
   }
 
-  // NEW: helpers to open/confirm/cancel deletion
   function askDeleteChapter(cid: number) {
     setConfirmDel({ open: true, chapterId: cid });
   }
@@ -117,6 +131,13 @@ export default function NovelDetail() {
     setConfirmDel({ open: false, chapterId: null });
   }
 
+  function askDeleteNovel() { setConfirmDelNovel(true); }
+  async function confirmDeleteNovel() {
+    setConfirmDelNovel(false);
+    if (novel) await removeNovel(novel.id);
+  }
+  function cancelDeleteNovel() { setConfirmDelNovel(false); }
+
   async function nextSeq(): Promise<number> {
     const db = dbRef.current; if (!db) return 1;
     const rows = await db.select(`SELECT IFNULL(MAX(seq),0) AS max_seq FROM chapters WHERE novel_id = ?`, [novelId]);
@@ -127,21 +148,18 @@ export default function NovelDetail() {
     if (!novel) return;
     const db = dbRef.current; if (!db) return;
     const seq = await nextSeq();
-
     await db.execute(
       `INSERT INTO chapters (novel_id, seq, volume, display_title) VALUES (?, ?, ?, ?)`,
       [novel.id, seq, null, null]
     );
     const cidRow = await db.select(`SELECT last_insert_rowid() AS id`);
     const chapterId = cidRow[0].id as number;
-
     await db.execute(
       `INSERT INTO chapter_variants
        (chapter_id, variant_type, lang, title, content, source_url, provider, model_name, is_primary)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [chapterId, "original", novel.lang_original ?? "en", null, "", null, null, null, 1]
     );
-
     setAddOpen(false);
     await reloadAll();
   }
@@ -149,9 +167,7 @@ export default function NovelDetail() {
   async function onImportTxt() {
     if (!novel) return;
     const res = await DocumentPicker.getDocumentAsync({
-      type: ["text/plain", "text/*", "*/*"],
-      multiple: false,
-      copyToCacheDirectory: true,
+      type: ["text/plain", "text/*", "*/*"], multiple: false, copyToCacheDirectory: true,
     });
     if (res.canceled || !res.assets?.length) return;
 
@@ -162,21 +178,18 @@ export default function NovelDetail() {
 
     const db = dbRef.current; if (!db) return;
     const seq = await nextSeq();
-
     await db.execute(
       `INSERT INTO chapters (novel_id, seq, volume, display_title) VALUES (?, ?, ?, ?)`,
       [novel.id, seq, null, stripExt(name)]
     );
     const cidRow = await db.select(`SELECT last_insert_rowid() AS id`);
     const chapterId = cidRow[0].id as number;
-
     await db.execute(
       `INSERT INTO chapter_variants
        (chapter_id, variant_type, lang, title, content, source_url, provider, model_name, is_primary)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [chapterId, "original", novel.lang_original ?? "en", stripExt(name), content ?? "", null, null, null, 1]
     );
-
     setAddOpen(false);
     await reloadAll();
   }
@@ -186,8 +199,11 @@ export default function NovelDetail() {
     return i > 0 ? n.slice(0, i) : n;
   }
 
+  const firstChapterId = chapters[0]?.id;
+
   return (
-    <View style={s.page}>
+    <View style={s.page} pointerEvents={menuOpen ? 'box-none' : 'auto'}>
+      {/* Top bar */}
       <View style={s.topbar}>
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
           <Pressable onPress={() => setAddOpen(v => !v)} style={s.btn}>
@@ -202,19 +218,23 @@ export default function NovelDetail() {
       </View>
 
       {!novel ? (
-        <View style={s.empty}>
-          <Text style={s.emptyTitle}>Novel not found.</Text>
-        </View>
+        <View style={s.empty}><Text style={s.emptyTitle}>Novel not found.</Text></View>
       ) : (
         <>
+          <ScrollView
+            contentContainerStyle={{ paddingBottom: 40 }}
+            showsVerticalScrollIndicator={false}
+          >
+          {/* HERO (cover + meta + action) */}
           <View style={s.hero}>
-            {/* Cover box anchors overlay & dropdown outside rounded clipping */}
             <View style={s.coverBox}>
-              <View style={s.coverLg}>
-                <Text style={s.coverText}>{initials(novel.title)}</Text>
-              </View>
+              {novel.cover_path ? (
+                <Image source={{ uri: normalizeCoverUri(novel.cover_path) as string }} style={s.coverLg} resizeMode="cover" />
+              ) : (
+                <View style={s.coverLg}><Text style={s.coverText}>{initials(novel.title)}</Text></View>
+              )}
 
-              {/* Overlay buttons */}
+              {/* Overlay menu button */}
               <View style={s.overlayBtns}>
                 <Pressable style={s.iconBtn} onPress={() => setMenuOpen(v => !v)}>
                   <Ionicons name="ellipsis-vertical" size={16} color="#fff" />
@@ -222,154 +242,164 @@ export default function NovelDetail() {
               </View>
 
               {menuOpen && (
-                <View style={s.menu}>
-                  <Pressable
-                    style={s.menuItem}
-                    onPress={() => { setMenuOpen(false); setEditOpen(true); }}
-                  >
+                <View style={s.menu} pointerEvents="auto">
+                  <Pressable style={s.menuItem} onPress={() => { setMenuOpen(false); setEditOpen(true); }}>
                     <Ionicons name="create-outline" size={18} color={theme.colors.text} />
                     <Text style={s.menuLabel}>Edit novel</Text>
                   </Pressable>
-
-                  <Pressable
-                    style={s.menuItem}
-                    onPress={() => { setMenuOpen(false); removeNovel(novel.id); }}
-                  >
+                  <Pressable style={s.menuItem} onPress={() => { setMenuOpen(false); askDeleteNovel(); }}>
                     <Ionicons name="trash-outline" size={18} color={theme.colors.text} />
                     <Text style={s.menuLabel}>Remove from Library</Text>
                   </Pressable>
                 </View>
               )}
-
             </View>
 
             <View style={s.meta}>
               <Text style={s.h2}>{novel.title}</Text>
               <Text style={s.author}>{novel.author || "Unknown author"}</Text>
-              {novel.description ? <Text style={s.desc}>{novel.description}</Text> : null}
-              <View style={s.kv}>
-                <Text style={s.kLabel}>Original Lang:</Text><Text style={s.kVal}>{novel.lang_original || "—"}</Text>
-                <Text style={s.kLabel}>Status:</Text><Text style={s.kVal}>{novel.status || "—"}</Text>
-                <Text style={s.kLabel}>Slug:</Text><Text style={s.kVal}>{novel.slug || "—"}</Text>
+
+              {/* Chips row: status + language */}
+              <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                <View style={s.smallChip}><Text style={s.smallChipTxt}>{novel.status || "—"}</Text></View>
+                <View style={s.smallChip}><Text style={s.smallChipTxt}>{novel.lang_original || "—"}</Text></View>
               </View>
+
+              {/* Start / Continue button */}
+              <View style={{ marginTop: 14, flexDirection: "row", gap: 8 }}>
+                <Pressable
+                  style={[s.btn, { paddingHorizontal: 16 }]}
+                  disabled={!firstChapterId}
+                  onPress={() => {
+                    if (!firstChapterId) return;
+                    router.push({ pathname: "/novel/[id]/chapter/[chapterId]", params: { id: String(novelId), chapterId: String(firstChapterId) } });
+                  }}
+                >
+                  <Text style={s.btnText}>{/* change to Continue when you track progress */}
+                    {firstChapterId ? "Start reading" : "Start reading"}
+                  </Text>
+                </Pressable>
+              </View>
+
               <Text style={s.statusMsg}>{msg}</Text>
             </View>
           </View>
 
-          <View style={{ marginTop: 16 }}>
-            <Text style={s.h3}>Chapters</Text>
-            {chapters.length === 0 ? (
-              <View style={s.emptySmall}>
-                <Text style={s.emptySmallText}>No chapters yet.</Text>
-                <Text style={s.emptySmallSub}>Use “Add Chapter” → Empty / TXT / EPUB.</Text>
-              </View>
+          {/* TABS */}
+          <View style={{ marginTop: 18 }}>
+            <View style={s.tabsRow}>
+              <Pressable
+                onPress={() => setActiveTab("about")}
+                style={[s.tabBtn, activeTab === "about" && s.tabBtnActive]}
+              >
+                <Text style={[s.tabTxt, activeTab === "about" && s.tabTxtActive]}>About</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setActiveTab("toc")}
+                style={[s.tabBtn, activeTab === "toc" && s.tabBtnActive]}
+              >
+                <Text style={[s.tabTxt, activeTab === "toc" && s.tabTxtActive]}>Table of Contents</Text>
+              </Pressable>
+            </View>
+
+            {activeTab === "about" ? (
+              <AboutTab novel={novel} />
             ) : (
-              <FlatList
-                data={chapters}
-                keyExtractor={(c) => String(c.id)}
-                contentContainerStyle={{ paddingBottom: 32 }}
-                ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
-                renderItem={({ item }) => (
-                  <Pressable
-                    style={s.chapterRow}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/novel/[id]/chapter/[chapterId]",
-                        params: { id: String(novelId), chapterId: String(item.id) },
-                      })
-                    }
-                    android_ripple={{ color: "#222" }}
-                  >
-                    <View style={s.chip}><Text style={s.chipTxt}>#{item.seq}</Text></View>
-                    <Text style={s.chTitle} numberOfLines={1}>
-                      {item.display_title || `Chapter ${item.seq}`}
-                    </Text>
-                    <Pressable
-                      onPress={(e) => { e.stopPropagation(); askDeleteChapter(item.id); }}
-                      style={s.deleteBtn}
-                    >
-                      <Ionicons name="trash-outline" size={18} color={theme.colors.text} />
-                    </Pressable>
-                  </Pressable>
-                )}
+              <TableOfContentsTab
+                novelId={novelId}
+                chapters={chapters}
+                onOpenChapter={(chapterId) => router.push({
+                  pathname: "/novel/[id]/chapter/[chapterId]",
+                  params: { id: String(novelId), chapterId: String(chapterId) },
+                })}
+                onAskDeleteChapter={askDeleteChapter}
               />
             )}
           </View>
-        </>
-      )}
+        </ScrollView>
+    </>
+  )
+}
 
-      {/* Add Chapter Menu */}
-      <Modal transparent visible={addOpen} animationType="fade" onRequestClose={() => setAddOpen(false)}>
-        <Pressable style={s.modalBackdrop} onPress={() => setAddOpen(false)} />
-        <View style={s.addMenu}>
-          <Text style={s.addTitle}>Add Chapter</Text>
-          <TouchableOpacity style={s.addItem} onPress={onAddEmpty}>
-            <Ionicons name="document-outline" size={20} color={theme.colors.text} />
-            <Text style={s.addLabel}>Empty</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={s.addItem} onPress={onImportTxt}>
-            <Ionicons name="document-text-outline" size={20} color={theme.colors.text} />
-            <Text style={s.addLabel}>Import TXT</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={s.addItem}
-            onPress={() => { setAddOpen(false); setImportOpen(true); }}
-          >
-            <Ionicons name="book-outline" size={20} color={theme.colors.text} />
-            <Text style={s.addLabel}>Import EPUB</Text>
-          </TouchableOpacity>
+{ menuOpen && <Pressable style={s.scrim} onPress={() => setMenuOpen(false)} /> }
 
-          <TouchableOpacity style={[s.addItem, { justifyContent: "center" }]} onPress={() => setAddOpen(false)}>
-            <Text style={[s.addLabel, { color: theme.colors.textDim }]}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
+{/* Add Chapter Menu */ }
+<Modal transparent visible={addOpen} animationType="fade" onRequestClose={() => setAddOpen(false)}>
+  <Pressable style={s.modalBackdrop} onPress={() => setAddOpen(false)} />
+  <View style={s.addMenu}>
+    <Text style={s.addTitle}>Add Chapter</Text>
+    <TouchableOpacity style={s.addItem} onPress={onAddEmpty}>
+      <Ionicons name="document-outline" size={20} color={theme.colors.text} />
+      <Text style={s.addLabel}>Empty</Text>
+    </TouchableOpacity>
+    <TouchableOpacity style={s.addItem} onPress={onImportTxt}>
+      <Ionicons name="document-text-outline" size={20} color={theme.colors.text} />
+      <Text style={s.addLabel}>Import TXT</Text>
+    </TouchableOpacity>
+    <TouchableOpacity style={s.addItem} onPress={() => { setAddOpen(false); setImportOpen(true); }}>
+      <Ionicons name="book-outline" size={20} color={theme.colors.text} />
+      <Text style={s.addLabel}>Import EPUB</Text>
+    </TouchableOpacity>
 
-      {/* EPUB importer sheet */}
-      <AddChaptersEPUB
-        visible={importOpen}
-        novelId={novelId}
-        onClose={() => setImportOpen(false)}
-        onImported={() => { setImportOpen(false); reloadAll(); }}
-      />
+    <TouchableOpacity style={[s.addItem, { justifyContent: "center" }]} onPress={() => setAddOpen(false)}>
+      <Text style={[s.addLabel, { color: theme.colors.textDim }]}>Cancel</Text>
+    </TouchableOpacity>
+  </View>
+</Modal>
 
-      {/* Edit sheet */}
-      <EditNovelSheet
-        visible={editOpen}
-        novelId={novelId}
-        onClose={() => setEditOpen(false)}
-        onSaved={() => { setEditOpen(false); reloadAll(); }}
-      />
+{/* EPUB importer sheet */ }
+<AddChaptersEPUB
+  visible={importOpen}
+  novelId={novelId}
+  onClose={() => setImportOpen(false)}
+  onImported={() => { setImportOpen(false); reloadAll(); }}
+/>
 
-      {/* NEW: Confirm delete chapter modal */}
-      <Modal transparent visible={confirmDel.open} animationType="fade" onRequestClose={cancelDeleteChapter}>
-        <Pressable style={s.modalBackdrop} onPress={cancelDeleteChapter} />
-        <View style={s.centerWrap}>
-          <View style={s.confirmCard}>
-            <Text style={s.confirmText}>Are you sure you want to delete the chapter?</Text>
-            <View style={s.confirmActions}>
-              <Pressable style={s.btnGhost} onPress={cancelDeleteChapter}>
-                <Text style={s.btnGhostText}>No</Text>
-              </Pressable>
-              <View style={{ flex: 1 }} />
-              <Pressable style={s.btn} onPress={confirmDeleteChapter}>
-                <Text style={s.btnText}>Yes</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+{/* Edit sheet */ }
+<EditNovelSheet
+  visible={editOpen}
+  novelId={novelId}
+  onClose={() => setEditOpen(false)}
+  onSaved={() => { setEditOpen(false); reloadAll(); }}
+/>
+
+{/* Confirm delete novel */ }
+<Modal transparent visible={confirmDelNovel} animationType="fade" onRequestClose={cancelDeleteNovel}>
+  <Pressable style={s.modalBackdrop} onPress={cancelDeleteNovel} />
+  <View style={s.centerWrap}>
+    <View style={s.confirmCard}>
+      <Text style={s.confirmText}>Are you sure you want to delete this novel?</Text>
+      <View style={s.confirmActions}>
+        <Pressable style={s.btnGhost} onPress={cancelDeleteNovel}><Text style={s.btnGhostText}>No</Text></Pressable>
+        <View style={{ flex: 1 }} />
+        <Pressable style={s.btn} onPress={confirmDeleteNovel}><Text style={s.btnText}>Yes</Text></Pressable>
+      </View>
     </View>
+  </View>
+</Modal>
+
+{/* Confirm delete chapter */ }
+<Modal transparent visible={confirmDel.open} animationType="fade" onRequestClose={cancelDeleteChapter}>
+  <Pressable style={s.modalBackdrop} onPress={cancelDeleteChapter} />
+  <View style={s.centerWrap}>
+    <View style={s.confirmCard}>
+      <Text style={s.confirmText}>Are you sure you want to delete the chapter?</Text>
+      <View style={s.confirmActions}>
+        <Pressable style={s.btnGhost} onPress={cancelDeleteChapter}><Text style={s.btnGhostText}>No</Text></Pressable>
+        <View style={{ flex: 1 }} />
+        <Pressable style={s.btn} onPress={confirmDeleteChapter}><Text style={s.btnText}>Yes</Text></Pressable>
+      </View>
+    </View>
+  </View>
+</Modal>
+    </View >
   );
 }
 
-const COVER_W = 120;
-const COVER_H = 160;
-
 const styles = createStyles((t) => StyleSheet.create({
-  page: { flex: 1, backgroundColor: t.colors.bg, padding: t.spacing(4) },
+  page: { flex: 1, backgroundColor: t.colors.bg, padding: t.spacing(4), position: 'relative' },
   topbar: { flexDirection: "row", justifyContent: "flex-end", alignItems: "flex-end", marginBottom: t.spacing(5), marginTop: t.spacing(10) },
-  title: { color: t.colors.text, fontSize: t.font.xl, fontWeight: "800" },
+
   btn: { backgroundColor: t.colors.tint, paddingVertical: t.spacing(2), paddingHorizontal: t.spacing(3), borderRadius: t.radius.md },
   btnText: { color: "#fff", fontWeight: "700" },
   btnGhost: { paddingVertical: t.spacing(2), paddingHorizontal: t.spacing(3), borderRadius: t.radius.md },
@@ -377,34 +407,20 @@ const styles = createStyles((t) => StyleSheet.create({
 
   hero: { flexDirection: "row", gap: 16, alignItems: "flex-start" },
 
-  // Cover region
-  coverBox: { width: COVER_W, height: COVER_H, position: "relative" },
-  coverLg: {
-    width: "100%", height: "100%",
-    borderRadius: t.radius.lg, backgroundColor: "#1b222c",
-    alignItems: "center", justifyContent: "center",
-  },
+  coverBox: { width: 120, height: 180, position: "relative" },
+  coverLg: { width: "100%", height: "100%", borderRadius: t.radius.lg, backgroundColor: "#1b222c", alignItems: "center", justifyContent: "center" },
   coverText: { color: "#c3c7d1", fontSize: 20, fontWeight: "800" },
 
-  overlayBtns: {
-    position: "absolute", top: 6, right: 6,
-    flexDirection: "row", gap: 6,
-  },
+  overlayBtns: { position: "absolute", top: 6, right: 6, flexDirection: "row", gap: 6 },
   iconBtn: {
-    width: 28, height: 28, borderRadius: 14,
-    alignItems: "center", justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.35)",
-    borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.25)",
+    width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.35)", borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.25)",
   },
 
-  // Dropdown is anchored to the coverBox (not clipped by rounded cover)
+  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'transparent', zIndex: 100, elevation: 8 },
   menu: {
-    position: "absolute", top: 40, left: 86,
-    backgroundColor: t.colors.card,
-    borderRadius: t.radius.md,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border,
-    overflow: "hidden",
-    zIndex: 20, elevation: 6,
+    position: "absolute", top: 40, left: 86, backgroundColor: t.colors.card, borderRadius: t.radius.md,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border, overflow: "hidden", zIndex: 101, elevation: 12,
     shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
   },
   menuItem: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 12 },
@@ -413,40 +429,30 @@ const styles = createStyles((t) => StyleSheet.create({
   meta: { flex: 1 },
   h2: { color: t.colors.text, fontSize: t.font.lg, fontWeight: "800" },
   author: { color: t.colors.textDim, marginTop: 4 },
-  desc: { color: t.colors.textDim, marginTop: 8 },
-  kv: { marginTop: 12, columnGap: 8, rowGap: 6, flexDirection: "row", flexWrap: "wrap", alignItems: "center" },
-  kLabel: { color: t.colors.textDim },
-  kVal: { color: t.colors.text, fontWeight: "600", marginRight: 12 },
   statusMsg: { color: t.colors.textDim, marginTop: 8, fontSize: t.font.sm },
 
-  h3: { color: t.colors.text, fontSize: t.font.lg, fontWeight: "800", marginTop: 8, marginBottom: 6 },
+  // tiny chips under title
+  smallChip: { backgroundColor: "rgba(127,127,127,0.18)", borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10 },
+  smallChipTxt: { color: t.colors.text, fontWeight: "700", fontSize: t.font.sm },
+
+  // Tabs
+  tabsRow: {
+    flexDirection: "row", backgroundColor: t.colors.card, borderRadius: t.radius.lg,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border, padding: 4, gap: 6,
+  },
+  tabBtn: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: t.radius.md },
+  tabBtnActive: { backgroundColor: t.colors.bgElevated },
+  tabTxt: { color: t.colors.textDim, fontWeight: "700" },
+  tabTxtActive: { color: t.colors.text },
+
   empty: { flex: 1, alignItems: "center", justifyContent: "center" },
   emptyTitle: { color: t.colors.text, fontSize: t.font.lg, fontWeight: "700" },
-  emptySmall: {
-    padding: 16, backgroundColor: t.colors.card, borderRadius: t.radius.lg,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border
-  },
-  emptySmallText: { color: t.colors.text, fontWeight: "600" },
-  emptySmallSub: { color: t.colors.textDim, marginTop: 4 },
 
-  chapterRow: {
-    flexDirection: "row", alignItems: "center",
-    backgroundColor: t.colors.card, borderRadius: t.radius.lg,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border,
-    padding: 12
-  },
-  chip: { backgroundColor: "rgba(127,127,127,0.18)", borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8, marginRight: 10 },
-  chipTxt: { color: t.colors.text, fontWeight: "700" },
-  chTitle: { flex: 1, color: t.colors.text },
-  deleteBtn: { paddingHorizontal: 6, paddingVertical: 6 },
-
-  // Add menu
+  // Add sheet
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)" },
   addMenu: {
-    position: "absolute", left: 16, right: 16, bottom: 24,
-    backgroundColor: t.colors.card, borderRadius: t.radius.lg,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border,
-    padding: 12,
+    position: "absolute", left: 16, right: 16, bottom: 24, backgroundColor: t.colors.card, borderRadius: t.radius.lg,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border, padding: 12,
   },
   addTitle: { color: t.colors.text, fontWeight: "800", fontSize: t.font.md, marginBottom: 8 },
   addItem: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 6 },
@@ -455,12 +461,8 @@ const styles = createStyles((t) => StyleSheet.create({
   // Confirm dialog
   centerWrap: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
   confirmCard: {
-    width: "84%",
-    backgroundColor: t.colors.card,
-    borderRadius: t.radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: t.colors.border,
-    padding: 16,
+    width: "84%", backgroundColor: t.colors.card, borderRadius: t.radius.lg, borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.colors.border, padding: 16,
   },
   confirmText: { color: t.colors.text, fontWeight: "700", marginBottom: 12 },
   confirmActions: { flexDirection: "row", alignItems: "center" },

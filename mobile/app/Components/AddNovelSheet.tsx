@@ -98,6 +98,14 @@ export default function AddNovelSheet({ visible, onClose, onAdded }: Props) {
   }
 
   // ------------------- EPUB IMPORT FLOW -------------------
+  function textFromXmlTag(metaBlock: string, tagRe: RegExp): string | null {
+    const m = tagRe.exec(metaBlock);
+    if (!m) return null;
+    // Remove any inner tags and decode entities
+    const raw = m[1].replace(/<[^>]+>/g, "").trim();
+    return decodeEntities(raw);
+  }
+
   async function importEpubFromUri(uri: string) {
     const db = await initDb();
     setBusy(true);
@@ -505,7 +513,3 @@ const styles = createStyles((t) =>
     err: { color: "#ff7676", marginTop: 8 },
   })
 );
-function textFromXmlTag(metaBlock: string, arg1: RegExp) {
-    throw new Error("Function not implemented.");
-}
-
