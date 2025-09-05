@@ -1,14 +1,64 @@
-// app/Library.tsx (or screens/Library.tsx)
+// app/Library.tsx
 import { useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, Pressable, StyleSheet, Image } from "react-native";
+import { View, Text, FlatList, Pressable, StyleSheet, Modal, Dimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme, createStyles } from "../src/theme";
 import { initDb } from "../src/db";
 import AddNovelSheet from "./Components/AddNovelSheet";
 import EditNovelSheet from "./Components/EditNovelSheet";
+import { Image as ExpoImage } from "expo-image"; // <-- use expo-image for headers & caching
 
 type NovelRow = { id: number; title: string; author: string | null; description?: string | null; cover_path?: string | null };
+
+// Normalize any cover path into a RN-friendly URI
+function normalizeCoverUri(p?: string | null): string | null {
+  if (!p) return null;
+  if (/^https?:\/\//i.test(p)) return encodeURI(p);
+  if (/^(file|content|data):/i.test(p)) return p;
+  return "file://" + p.replace(/^\/+/, "");
+}
+
+function initials(title: string) {
+  const words = title.trim().split(/\s+/).slice(0, 2);
+  return words.map(w => w[0]?.toUpperCase() ?? "").join("");
+}
+
+// Build a source for expo-image, injecting Referer for novelupdates CDN
+function buildCoverSource(uri: string | null) {
+  if (!uri) return null as any;
+  const isNU = /^https?:\/\/cdn\.novelupdates\.com\//i.test(uri);
+  return isNU ? { uri, headers: { Referer: "https://www.novelupdates.com/" } } : { uri };
+}
+
+// Small helper with graceful fallback to initials if image fails
+function CoverImage({
+  coverUri,
+  title,
+  styleImage,
+  styleFallbackText,
+}: {
+  coverUri: string | null;
+  title: string;
+  styleImage: any;
+  styleFallbackText: any;
+}) {
+  const [ok, setOk] = useState(true);
+  const source = coverUri ? buildCoverSource(coverUri) : null;
+  if (source && ok) {
+    return (
+      <ExpoImage
+        source={source}
+        style={styleImage}
+        contentFit="cover"
+        onError={() => setOk(false)}
+        // optional: stronger caching
+        cachePolicy="disk"
+      />
+    );
+  }
+  return <Text style={styleFallbackText}>{initials(title)}</Text>;
+}
 
 export default function Library() {
   const { theme } = useTheme();
@@ -21,6 +71,7 @@ export default function Library() {
 
   // menu + edit state
   const [menuForId, setMenuForId] = useState<number | null>(null);
+  const [menuAnchorY, setMenuAnchorY] = useState<number | null>(null); // screen Y where the 3-dots was tapped
   const [editOpen, setEditOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
 
@@ -54,11 +105,9 @@ export default function Library() {
     await reload();
   }
 
-  function normalizeCoverUri(p?: string | null) {
-    if (!p) return null;
-    if (/^(file|content|https?):|^data:/.test(p)) return p;
-    return "file://" + p.replace(/^\/+/, "");
-  }
+  const active = novels.find(n => n.id === menuForId) || null;
+  const scrH = Dimensions.get("window").height;
+  const menuTop = Math.max(72, Math.min(((menuAnchorY ?? 200) - 40), scrH - 160)); // keep on-screen
 
   return (
     <View style={s.container}>
@@ -76,67 +125,46 @@ export default function Library() {
         <FlatList
           data={novels}
           keyExtractor={(it) => String(it.id)}
-          contentContainerStyle={{ paddingBottom: 96, paddingHorizontal: theme.spacing(4) }}
+          contentContainerStyle={{ paddingBottom: theme.spacing(96 / 4), paddingHorizontal: theme.spacing(0) }}
           ItemSeparatorComponent={() => <View style={{ height: theme.spacing(2) }} />}
-          renderItem={({ item }) => (
-            <Pressable
-              style={s.card}
-              onPress={() => router.push({ pathname: "/novel/[id]", params: { id: String(item.id) } })}
-              android_ripple={{ color: "#222" }}
-            >
-              <View style={s.cover}>
-                {item.cover_path ? (
-                  <Image
-                    source={{ uri: normalizeCoverUri(item.cover_path) as string }}
-                    style={s.coverImg}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <Text style={s.coverText}>{initials(item.title)}</Text>
-                )}
-              </View>
-
-              <View style={s.meta}>
-                <Text numberOfLines={1} style={s.title}>{item.title}</Text>
-                <Text numberOfLines={1} style={s.author}>{item.author || "Unknown author"}</Text>
-                {!!item.description && <Text numberOfLines={2} style={s.desc}>{item.description}</Text>}
-              </View>
-
-              {/* overflow button */}
+          renderItem={({ item }) => {
+            const normalized = normalizeCoverUri(item.cover_path);
+            return (
               <Pressable
-                onPress={(e) => { e.stopPropagation(); setMenuForId(menuForId === item.id ? null : item.id); }}
-                style={s.menuBtn}
+                style={s.card}
+                onPress={() => router.push({ pathname: "/novel/[id]", params: { id: String(item.id) } })}
+                android_ripple={{ color: "#222" }}
               >
-                <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
-              </Pressable>
-
-              {/* per-item menu (above scrim via zIndex/elevation) */}
-              {menuForId === item.id && (
-                <View style={s.menu}>
-                  <Pressable
-                    style={s.menuItem}
-                    onPress={(e) => { e.stopPropagation(); setMenuForId(null); setEditId(item.id); setEditOpen(true); }}
-                  >
-                    <Ionicons name="create-outline" size={18} color={theme.colors.text} />
-                    <Text style={s.menuLabel}>Edit novel</Text>
-                  </Pressable>
-                  <Pressable
-                    style={s.menuItem}
-                    onPress={(e) => { e.stopPropagation(); setMenuForId(null); removeNovel(item.id); }}
-                  >
-                    <Ionicons name="trash-outline" size={18} color={theme.colors.text} />
-                    <Text style={s.menuLabel}>Remove from Library</Text>
-                  </Pressable>
+                <View style={s.cover}>
+                  <CoverImage
+                    coverUri={normalized}
+                    title={item.title}
+                    styleImage={s.coverImg}
+                    styleFallbackText={s.coverText}
+                  />
                 </View>
-              )}
-            </Pressable>
-          )}
-        />
-      )}
 
-      {/* Full-screen scrim to close any open menu (below menu) */}
-      {menuForId != null && (
-        <Pressable style={s.scrim} onPress={() => setMenuForId(null)} />
+                <View style={s.meta}>
+                  <Text numberOfLines={1} style={s.title}>{item.title}</Text>
+                  <Text numberOfLines={1} style={s.author}>{item.author || "Unknown author"}</Text>
+                  {!!item.description && <Text numberOfLines={2} style={s.desc}>{item.description}</Text>}
+                </View>
+
+                {/* overflow button */}
+                <Pressable
+                  onPress={(e: any) => {
+                    e.stopPropagation();
+                    setMenuForId(item.id);
+                    setMenuAnchorY(e?.nativeEvent?.pageY ?? null);
+                  }}
+                  style={s.menuBtn}
+                >
+                  <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
+                </Pressable>
+              </Pressable>
+            );
+          }}
+        />
       )}
 
       {/* Floating + button */}
@@ -157,22 +185,53 @@ export default function Library() {
         onClose={() => setEditOpen(false)}
         onSaved={() => { setEditOpen(false); reload(); }}
       />
+
+      {/* === TOP-LEVEL MODAL MENU === */}
+      <Modal
+        transparent
+        visible={menuForId != null}
+        animationType="fade"
+        onRequestClose={() => setMenuForId(null)}
+      >
+        {/* Scrim */}
+        <Pressable style={s.modalBackdrop} onPress={() => setMenuForId(null)} />
+
+        {/* Floating menu */}
+        <View style={[s.menuModal, { top: menuTop }]}>
+          <Pressable
+            style={s.menuItem}
+            onPress={() => {
+              setMenuForId(null);
+              if (active) { setEditId(active.id); setEditOpen(true); }
+            }}
+          >
+            <Ionicons name="create-outline" size={18} color={theme.colors.text} />
+            <Text style={s.menuLabel}>Edit novel</Text>
+          </Pressable>
+
+          <Pressable
+            style={s.menuItem}
+            onPress={() => {
+              const id = active?.id;
+              setMenuForId(null);
+              if (id != null) removeNovel(id);
+            }}
+          >
+            <Ionicons name="trash-outline" size={18} color={theme.colors.text} />
+            <Text style={s.menuLabel}>Remove from Library</Text>
+          </Pressable>
+        </View>
+      </Modal>
     </View>
   );
 }
 
-function initials(title: string) {
-  const words = title.trim().split(/\s+/).slice(0, 2);
-  return words.map(w => w[0]?.toUpperCase() ?? "").join("");
-}
-
 const styles = createStyles((t) => StyleSheet.create({
-  // make this a positioning context for the scrim
   container: { flex: 1, backgroundColor: t.colors.bg, position: "relative" },
 
   header: {
     paddingVertical: t.spacing(4),
-    paddingHorizontal: t.spacing(4),
+    paddingHorizontal: t.spacing(1),
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -190,7 +249,7 @@ const styles = createStyles((t) => StyleSheet.create({
     alignItems: "center",
     backgroundColor: t.colors.card,
     borderRadius: t.radius.lg,
-    padding: t.spacing(3),
+    padding: t.spacing(1.5),
     gap: t.spacing(2),
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: t.colors.border,
@@ -212,25 +271,20 @@ const styles = createStyles((t) => StyleSheet.create({
 
   menuBtn: { paddingHorizontal: 8, paddingVertical: 4 },
 
-  menu: {
+  // Modal overlay
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)" },
+  menuModal: {
     position: "absolute",
-    top: 80,
-    right: 8,
+    right: 16,
     backgroundColor: t.colors.card,
     borderRadius: t.radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: t.colors.border,
     overflow: "hidden",
-    zIndex: 101,           
-    elevation: 12,         
+    elevation: 12,
     shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
   },
-  scrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "transparent",
-    zIndex: 100,
-    elevation: 8,
-  },
+
   menuItem: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 12 },
   menuLabel: { color: t.colors.text },
 

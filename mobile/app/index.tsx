@@ -3,6 +3,7 @@ import { JSX, useMemo, useState } from "react";
 import { View, Text, Pressable, StyleSheet, SafeAreaView } from "react-native";
 import { useTheme, createStyles } from "../src/theme";
 import Library from "./Library";
+import History from "./History";
 import MoreScreen from "./MoreScreen";
 
 // 👇 importa librerías de íconos
@@ -18,6 +19,7 @@ export default function Index() {
   const Screen = useMemo(() => {
     switch (tab) {
       case "Library": return <Library />;
+      case "History": return <History />;
       case "More": return <MoreScreen />;
       default: return <Placeholder title={tab} />;
     }

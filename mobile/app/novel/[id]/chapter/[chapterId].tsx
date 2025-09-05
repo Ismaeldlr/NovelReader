@@ -4,9 +4,9 @@ import { useLocalSearchParams, Link, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme, createStyles } from "../../../../src/theme";
 import { initDb } from "../../../../src/db";
-
-// NEW: bottom sheet
+import { saveReadingProgress } from "../../../../src/db/reading_progress";
 import ReaderSheet from "./[chapter]/ReaderSheet";
+import { getReaderPrefs, updateReaderPrefs, type ReaderPrefs } from "../../../../src/prefs/reader_prefs";
 
 type ChapterListItem = { id: number; seq: number; display_title: string | null };
 type ChapterVariant = { id: number; title: string | null; content: string; variant_type: string; lang: string };
@@ -45,6 +45,43 @@ export default function Reader() {
   const TAP_SLOP_PX = 10;
   const TAP_MAX_MS = 250;
 
+  // Ignore opening the sheet when a real button is being pressed
+  const ignoreTapRef = useRef(false);
+  const TAP_IGNORE_MS = 150; // small delay so parent doesn't see the tap
+
+  // === Progress persistence refs ===
+  const currentPctRef = useRef(0);
+  const saveMetaRef = useRef({ lastTs: 0, lastPct: 0 });
+
+  // --- prefs: load on mount (and whenever screen re-mounts for a different chapter) ---
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const prefs = await getReaderPrefs();
+      if (!alive) return;
+      setFontFamily(prefs.fontFamily ?? undefined);
+      setFontSize(prefs.fontSize ?? 16);
+      setLineHeight(prefs.lineHeight ?? "default");
+    })();
+    return () => { alive = false; };
+  }, [chId]); // re-apply on chapter change (fast, from AsyncStorage)
+
+  // --- prefs: save when these three change, debounced ---
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      void updateReaderPrefs({
+        fontFamily: fontFamily ?? null,
+        fontSize,
+        lineHeight,
+      });
+    }, 200); // small debounce to avoid spam writes
+    return () => {
+      if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+    };
+  }, [fontFamily, fontSize, lineHeight]);
+  
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -53,15 +90,32 @@ export default function Reader() {
       dbRef.current = db;
       await loadChapters(db);
       await loadCurrent(db, chId);
+
       // Load novel title
       const rows = await db.select("SELECT title FROM novels WHERE id = ? LIMIT 1", [novelId]);
       setNovelTitle(rows[0]?.title || "Novel");
       setMsg("Ready");
+
+      // reset UI progress
+      setReadPct(0);
+      currentPctRef.current = 0;
+      saveMetaRef.current = { lastTs: 0, lastPct: 0 };
+
       // jump to top when chapter changes
       requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: 0, animated: false }));
+
+      // Immediately mark this chapter as current (0%) so "Continue" points here even if you don't scroll yet.
+      requestAnimationFrame(() => { void persistProgress(0, true); });
     })().catch(e => setMsg("DB error: " + String(e)));
     return () => { alive = false; };
   }, [novelId, chId]);
+
+  // Flush progress on unmount / route-away
+  useEffect(() => {
+    return () => {
+      void persistProgress(currentPctRef.current, /*immediate*/ true);
+    };
+  }, []);
 
   async function loadChapters(db: any) {
     const rows = await db.select(
@@ -101,14 +155,36 @@ export default function Reader() {
     };
   }, [chapters, chId]);
 
-  function goPrev() {
+  // === Persist progress (throttled) ===
+  function shouldSave(now: number, pct: number) {
+    const { lastTs, lastPct } = saveMetaRef.current;
+    // Save if at least 1s passed OR moved at least 5 percentage points
+    return (now - lastTs) > 1000 || Math.abs(pct - lastPct) >= 0.05 || pct >= 0.99;
+  }
+
+  async function persistProgress(pct: number, immediate = false) {
+    try {
+      const now = Date.now();
+      const clamped = Math.max(0, Math.min(1, pct));
+      if (!immediate && !shouldSave(now, clamped)) return;
+      saveMetaRef.current = { lastTs: now, lastPct: clamped };
+      await saveReadingProgress(novelId, chId, clamped);
+    } catch {
+      /* ignore transient write errors */
+    }
+  }
+
+  async function goPrev() {
+    await persistProgress(currentPctRef.current, true);
     if (!prev) return;
     router.replace({
       pathname: "/novel/[id]/chapter/[chapterId]",
       params: { id: String(novelId), chapterId: String(prev.id) },
     });
   }
-  function goNext() {
+
+  async function goNext() {
+    await persistProgress(currentPctRef.current, true);
     if (!next) return;
     router.replace({
       pathname: "/novel/[id]/chapter/[chapterId]",
@@ -122,15 +198,19 @@ export default function Reader() {
     const max = Math.max(1, contentSize.height - layoutMeasurement.height);
     const pct = Math.min(1, Math.max(0, contentOffset.y / max));
     setReadPct(pct);
+    currentPctRef.current = pct;
+    // save (throttled)
+    void persistProgress(pct);
   }
 
   // Helpers for routing from sheet
-  function openTOC() {
-    // we include a tab hint; ensure your details page reads ?tab=toc
+  async function openTOC() {
+    await persistProgress(currentPctRef.current, true);
     router.push({ pathname: "/novel/[id]", params: { id: String(novelId), tab: "toc" } });
     setSheetOpen(false);
   }
-  function openAbout() {
+  async function openAbout() {
+    await persistProgress(currentPctRef.current, true);
     router.push({ pathname: "/novel/[id]", params: { id: String(novelId), tab: "about" } });
     setSheetOpen(false);
   }
@@ -147,10 +227,20 @@ export default function Reader() {
   function handleTouchEnd(e: any) {
     const dy = Math.abs(e.nativeEvent.pageY - touchStartRef.current.y);
     const dt = Date.now() - touchStartRef.current.t;
+
+    // 🚫 do not open if a child control is being pressed or the sheet is already open
+    if (ignoreTapRef.current || sheetOpen) return;
+
     if (!isDragging && dy < TAP_SLOP_PX && dt < TAP_MAX_MS) {
-      setSheetOpen(true);     // open only on true tap
+      setSheetOpen(true);
     }
   }
+
+  // helper to mark a Pressable as "interactive" so the parent tap doesn't open the sheet
+  const markInteractive = {
+    onPressIn: () => { ignoreTapRef.current = true; },
+    onPressOut: () => { setTimeout(() => { ignoreTapRef.current = false; }, TAP_IGNORE_MS); },
+  };
 
   return (
     <View style={s.page}>
@@ -176,27 +266,41 @@ export default function Reader() {
           {/* Rectangle: Novel Title */}
           <View style={s.rectContainer}>
             <Link href={{ pathname: "/novel/[id]", params: { id: String(novelId) } }} asChild>
-              <Pressable style={s.novelTitleWrap} android_ripple={{ color: theme.colors.border }}>
+              <Pressable
+                style={s.novelTitleWrap}
+                android_ripple={{ color: theme.colors.border }}
+                {...markInteractive}
+              >
                 <Text style={s.novelTitle} numberOfLines={1}>{novelTitle}</Text>
               </Pressable>
             </Link>
           </View>
 
           {/* Rectangle: Top navigation chips */}
-          <View style={[s.rectContainer, { marginTop: 16 }]}> 
-            <View style={[s.nav, { marginTop: 0, marginBottom: 0 }]}> 
-              <Pressable style={[s.pill, !prev && s.pillDisabled]} onPress={goPrev} disabled={!prev}>
+          <View style={[s.rectContainer, { marginTop: 16 }]}>
+            <View style={[s.nav, { marginTop: 0, marginBottom: 0 }]}>
+              <Pressable
+                style={[s.pill, !prev && s.pillDisabled]}
+                onPress={goPrev}
+                disabled={!prev}
+                {...markInteractive}
+              >
                 <Ionicons name="chevron-back" size={16} color={theme.colors.text} />
                 <Text style={s.pillTxt}>Back</Text>
               </Pressable>
 
               <Link href={{ pathname: "/novel/[id]", params: { id: String(novelId) } }} asChild>
-                <Pressable style={s.pill}>
+                <Pressable style={s.pill} {...markInteractive}>
                   <Text style={s.pillTxt}>Chapters List</Text>
                 </Pressable>
               </Link>
 
-              <Pressable style={[s.pill, !next && s.pillDisabled]} onPress={goNext} disabled={!next}>
+              <Pressable
+                style={[s.pill, !next && s.pillDisabled]}
+                onPress={goNext}
+                disabled={!next}
+                {...markInteractive}
+              >
                 <Text style={s.pillTxt}>Next</Text>
                 <Ionicons name="chevron-forward" size={16} color={theme.colors.text} />
               </Pressable>
@@ -204,7 +308,7 @@ export default function Reader() {
           </View>
 
           {/* Rectangle: Reader content */}
-          <View style={[s.rectContainer, { marginTop: 16 }]}> 
+          <View style={[s.rectContainer, { marginTop: 16 }]}>
             <View style={s.headerRow}>
               <Text style={s.title}>{current.title || "Untitled chapter"}</Text>
             </View>
@@ -212,26 +316,36 @@ export default function Reader() {
             <Text style={s.meta}>Variant: {current.variant_type} • Lang: {current.lang}</Text>
 
             {/* Content */}
-            <Text style={[s.body, { fontFamily, fontSize, lineHeight: effectiveLineHeight }]}> 
+            <Text style={[s.body, { fontFamily, fontSize, lineHeight: effectiveLineHeight }]}>
               {current.content}
             </Text>
           </View>
 
           {/* Rectangle: Bottom navigation chips */}
-          <View style={[s.rectContainer, { marginTop: 32, marginBottom: 0 }]}> 
-            <View style={[s.nav, { marginTop: 0, marginBottom: 0 }]}> 
-              <Pressable style={[s.pill, !prev && s.pillDisabled]} onPress={goPrev} disabled={!prev}>
+          <View style={[s.rectContainer, { marginTop: 32, marginBottom: 0 }]}>
+            <View style={[s.nav, { marginTop: 0, marginBottom: 0 }]}>
+              <Pressable
+                style={[s.pill, !prev && s.pillDisabled]}
+                onPress={goPrev}
+                disabled={!prev}
+                {...markInteractive}
+              >
                 <Ionicons name="chevron-back" size={16} color={theme.colors.text} />
                 <Text style={s.pillTxt}>Back</Text>
               </Pressable>
 
               <Link href={{ pathname: "/novel/[id]", params: { id: String(novelId) } }} asChild>
-                <Pressable style={s.pill}>
+                <Pressable style={s.pill} {...markInteractive}>
                   <Text style={s.pillTxt}>Chapters List</Text>
                 </Pressable>
               </Link>
 
-              <Pressable style={[s.pill, !next && s.pillDisabled]} onPress={goNext} disabled={!next}>
+              <Pressable
+                style={[s.pill, !next && s.pillDisabled]}
+                onPress={goNext}
+                disabled={!next}
+                {...markInteractive}
+              >
                 <Text style={s.pillTxt}>Next</Text>
                 <Ionicons name="chevron-forward" size={16} color={theme.colors.text} />
               </Pressable>
@@ -297,7 +411,7 @@ const styles = createStyles((t) => StyleSheet.create({
     alignItems: "center",
     gap: t.spacing(3),
     marginTop: t.spacing(2),
-    marginBottom: t.spacing(10),
+    marginBottom: t.spacing(12),
   },
   pill: {
     flexDirection: "row",
@@ -321,6 +435,6 @@ const styles = createStyles((t) => StyleSheet.create({
   header: { marginBottom: t.spacing(10) },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
   title: { color: t.colors.text, fontSize: t.font.lg, fontWeight: "800" },
-  meta: { color: t.colors.textDim, marginBottom: 12 },
+  meta: { color: t.colors.textDim, marginBottom: 22 },
   body: { color: t.colors.text, lineHeight: 24, fontSize: 16 },
 }));

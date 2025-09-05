@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, FlatList, Modal, TouchableOpacity, Image, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Pressable, Modal, TouchableOpacity, ScrollView, Dimensions } from "react-native";
 import { useLocalSearchParams, useRouter, Link } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme, createStyles } from "../../src/theme";
@@ -8,8 +8,10 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import AddChaptersEPUB from "../Components/AddChaptersEPUB";
 import EditNovelSheet from "../Components/EditNovelSheet";
+import { Image as ExpoImage } from "expo-image";
+import { getContinueForNovel, getNovelProgressSummary } from "../../src/db/reading_progress";
 
-// ---- Types (same shape you used) ----
+// ---- Types ----
 export type NovelRow = {
   id: number;
   title: string;
@@ -34,8 +36,20 @@ export type ChapterRow = {
 // ---- Helpers ----
 function normalizeCoverUri(p?: string | null): string | null {
   if (!p) return null;
-  if (/^(file|content|https?):|^data:/.test(p)) return p;
-  return "file://" + p.replace(/^\/+/, "");
+  if (/^https?:\/\//i.test(p)) return encodeURI(p);  
+  if (/^(file|content|data):/i.test(p)) return p;    
+  return "file://" + p.replace(/^\/+/, "");          
+}
+
+function buildCoverSource(uri: string | null) {
+  if (!uri) return null as any;
+  const isNU = /^https?:\/\/cdn\.novelupdates\.com\//i.test(uri);
+  return isNU ? { uri, headers: { Referer: "https://www.novelupdates.com/" } } : { uri };
+}
+
+function initials(title: string) {
+  const words = title.trim().split(/\s+/).slice(0, 2);
+  return words.map(w => w[0]?.toUpperCase() ?? "").join("");
 }
 
 // Tabs
@@ -44,6 +58,34 @@ type TabKey = "about" | "toc";
 // Lazy tab components
 import AboutTab from "./[id]/AboutTab";
 import TableOfContentsTab from "./[id]/TableOfContentsTab";
+
+// Small helper: cover with graceful fallback
+function CoverImage({
+  coverUri,
+  title,
+  styleImage,
+  styleFallbackText,
+}: {
+  coverUri: string | null;
+  title: string;
+  styleImage: any;
+  styleFallbackText: any;
+}) {
+  const [ok, setOk] = useState(true);
+  const source = coverUri ? buildCoverSource(coverUri) : null;
+  if (source && ok) {
+    return (
+      <ExpoImage
+        source={source}
+        style={styleImage}
+        contentFit="cover"
+        onError={() => setOk(false)}
+        cachePolicy="disk"
+      />
+    );
+  }
+  return <Text style={styleFallbackText}>{initials(title)}</Text>;
+}
 
 export default function NovelDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -60,11 +102,16 @@ export default function NovelDetail() {
 
   // Menus / modals
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuAnchorY, setMenuAnchorY] = useState<number | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [confirmDel, setConfirmDel] = useState<{ open: boolean; chapterId: number | null }>({ open: false, chapterId: null });
   const [confirmDelNovel, setConfirmDelNovel] = useState(false);
+
+  // Continue/Progress UI
+  const [continueTarget, setContinueTarget] = useState<{ chapter_id: number; position_pct: number } | null>(null);
+  const [readStats, setReadStats] = useState<{ total: number; readCount: number; percent: number }>({ total: 0, readCount: 0, percent: 0 });
 
   const dbRef = useRef<any>(null);
 
@@ -96,12 +143,27 @@ export default function NovelDetail() {
       [novelId]
     );
     setChapters(ch as ChapterRow[]);
-    setMsg("Ready");
-  }
 
-  function initials(title: string) {
-    const words = title.trim().split(/\s+/).slice(0, 2);
-    return words.map(w => w[0]?.toUpperCase() ?? "").join("");
+    // continue + progress
+    const cont = await getContinueForNovel(novelId); // { chapter_id, position_pct } | undefined
+    setContinueTarget(cont ?? null);
+
+    const sum = await getNovelProgressSummary(novelId); // { totalChapters, maxReadSeq, percent }
+    const total = Number(sum.totalChapters ?? 0);
+    const lastSeq = Number(sum.maxReadSeq ?? 0);
+    const within = Math.max(0, Math.min(1, Number(cont?.position_pct ?? 0)));
+
+    const overall = total ? Math.min(1, Math.max(0, ((Math.max(0, lastSeq - 1)) + within) / total)) : 0;
+
+    let readCount = Math.max(0, lastSeq);
+    if (within >= 0.01 && cont?.chapter_id) {
+      readCount = Math.max(readCount, chapters.findIndex(c => c.id === cont.chapter_id) + 1);
+    }
+    readCount = Math.min(total, readCount);
+
+    setReadStats({ total, readCount, percent: overall });
+
+    setMsg("Ready");
   }
 
   async function removeNovel(nid: number) {
@@ -133,9 +195,10 @@ export default function NovelDetail() {
 
   function askDeleteNovel() { setConfirmDelNovel(true); }
   async function confirmDeleteNovel() {
-    setConfirmDelNovel(false);
+    setConfirmDeleteNovel(false);
     if (novel) await removeNovel(novel.id);
   }
+  function setConfirmDeleteNovel(v: boolean) { setConfirmDelNovel(v); }
   function cancelDeleteNovel() { setConfirmDelNovel(false); }
 
   async function nextSeq(): Promise<number> {
@@ -201,8 +264,18 @@ export default function NovelDetail() {
 
   const firstChapterId = chapters[0]?.id;
 
+  // Floating menu placement
+  const scrH = Dimensions.get("window").height;
+  const menuTop = Math.max(72, Math.min(((menuAnchorY ?? 140) - 10), scrH - 160));
+
+  const buttonLabel = continueTarget?.chapter_id ? "Continue reading" : "Start reading";
+  const continueChapterId = continueTarget?.chapter_id || firstChapterId;
+  const percentLabel = `${Math.round(readStats.percent * 100)}%`;
+  const chaptersLabel = `${readStats.readCount} / ${readStats.total} chapters read ${percentLabel}`;
+  const showChaptersBelow = !!continueTarget?.chapter_id;
+
   return (
-    <View style={s.page} pointerEvents={menuOpen ? 'box-none' : 'auto'}>
+    <View style={s.page}>
       {/* Top bar */}
       <View style={s.topbar}>
         <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 8 }}>
@@ -221,178 +294,212 @@ export default function NovelDetail() {
         <View style={s.empty}><Text style={s.emptyTitle}>Novel not found.</Text></View>
       ) : (
         <>
-          <ScrollView
-            contentContainerStyle={{ paddingBottom: 40 }}
-            showsVerticalScrollIndicator={false}
-          >
-          {/* HERO (cover + meta + action) */}
-          <View style={s.hero}>
-            <View style={s.coverBox}>
-              {novel.cover_path ? (
-                <Image source={{ uri: normalizeCoverUri(novel.cover_path) as string }} style={s.coverLg} resizeMode="cover" />
-              ) : (
-                <View style={s.coverLg}><Text style={s.coverText}>{initials(novel.title)}</Text></View>
-              )}
+          <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+            {/* HERO (cover + meta + action) */}
+            <View style={s.hero}>
+              <View style={s.coverBox}>
+                {novel.cover_path ? (
+                  <View style={s.coverLg}>
+                    <CoverImage
+                      coverUri={normalizeCoverUri(novel.cover_path)}
+                      title={novel.title}
+                      styleImage={s.coverLg}
+                      styleFallbackText={s.coverText}
+                    />
+                  </View>
+                ) : (
+                  <View style={s.coverLg}><Text style={s.coverText}>{initials(novel.title)}</Text></View>
+                )}
 
-              {/* Overlay menu button */}
-              <View style={s.overlayBtns}>
-                <Pressable style={s.iconBtn} onPress={() => setMenuOpen(v => !v)}>
-                  <Ionicons name="ellipsis-vertical" size={16} color="#fff" />
-                </Pressable>
-              </View>
-
-              {menuOpen && (
-                <View style={s.menu} pointerEvents="auto">
-                  <Pressable style={s.menuItem} onPress={() => { setMenuOpen(false); setEditOpen(true); }}>
-                    <Ionicons name="create-outline" size={18} color={theme.colors.text} />
-                    <Text style={s.menuLabel}>Edit novel</Text>
-                  </Pressable>
-                  <Pressable style={s.menuItem} onPress={() => { setMenuOpen(false); askDeleteNovel(); }}>
-                    <Ionicons name="trash-outline" size={18} color={theme.colors.text} />
-                    <Text style={s.menuLabel}>Remove from Library</Text>
+                {/* Overlay menu button */}
+                <View style={s.overlayBtns}>
+                  <Pressable
+                    style={s.iconBtn}
+                    onPress={(e: any) => {
+                      setMenuOpen(true);
+                      setMenuAnchorY(e?.nativeEvent?.pageY ?? null);
+                    }}
+                  >
+                    <Ionicons name="ellipsis-vertical" size={16} color="#fff" />
                   </Pressable>
                 </View>
-              )}
-            </View>
-
-            <View style={s.meta}>
-              <Text style={s.h2}>{novel.title}</Text>
-              <Text style={s.author}>{novel.author || "Unknown author"}</Text>
-
-              {/* Chips row: status + language */}
-              <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-                <View style={s.smallChip}><Text style={s.smallChipTxt}>{novel.status || "—"}</Text></View>
-                <View style={s.smallChip}><Text style={s.smallChipTxt}>{novel.lang_original || "—"}</Text></View>
               </View>
 
-              {/* Start / Continue button */}
-              <View style={{ marginTop: 14, flexDirection: "row", gap: 8 }}>
+              <View style={s.meta}>
+                <Text style={s.h2}>{novel.title}</Text>
+                <Text style={s.author}>{novel.author || "Unknown author"}</Text>
+
+                {/* Chips row: status + language */}
+                <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                  <View style={s.smallChip}><Text style={s.smallChipTxt}>{novel.status || "—"}</Text></View>
+                  <View style={s.smallChip}><Text style={s.smallChipTxt}>{novel.lang_original || "—"}</Text></View>
+                </View>
+
+                {/* Start / Continue row + progress on right */}
+                <View style={{ marginTop: 14 }}>
+                  <Pressable
+                    style={[s.btn, { paddingHorizontal: 16, alignSelf: 'flex-start' }]}
+                    disabled={!continueChapterId}
+                    onPress={() => {
+                      if (!continueChapterId) return;
+                      router.push({
+                        pathname: "/novel/[id]/chapter/[chapterId]",
+                        params: { id: String(novelId), chapterId: String(continueChapterId) }
+                      });
+                    }}
+                  >
+                    <Text style={s.btnText}>{buttonLabel}</Text>
+                  </Pressable>
+                  {showChaptersBelow ? (
+                    <Text style={[s.readStats, { marginTop: 6, alignSelf: 'flex-start' }]}>{chaptersLabel}</Text>
+                  ) : (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 0 }}>
+                      <View style={{ flex: 1 }} />
+                      <Text style={s.readStats}>{chaptersLabel}</Text>
+                    </View>
+                  )}
+                </View>
+
+                <Text style={s.statusMsg}>{msg}</Text>
+              </View>
+            </View>
+
+            {/* TABS */}
+            <View style={{ marginTop: 18 }}>
+              <View style={s.tabsRow}>
                 <Pressable
-                  style={[s.btn, { paddingHorizontal: 16 }]}
-                  disabled={!firstChapterId}
-                  onPress={() => {
-                    if (!firstChapterId) return;
-                    router.push({ pathname: "/novel/[id]/chapter/[chapterId]", params: { id: String(novelId), chapterId: String(firstChapterId) } });
-                  }}
+                  onPress={() => setActiveTab("about")}
+                  style={[s.tabBtn, activeTab === "about" && s.tabBtnActive]}
                 >
-                  <Text style={s.btnText}>{/* change to Continue when you track progress */}
-                    {firstChapterId ? "Start reading" : "Start reading"}
-                  </Text>
+                  <Text style={[s.tabTxt, activeTab === "about" && s.tabTxtActive]}>About</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setActiveTab("toc")}
+                  style={[s.tabBtn, activeTab === "toc" && s.tabBtnActive]}
+                >
+                  <Text style={[s.tabTxt, activeTab === "toc" && s.tabTxtActive]}>Table of Contents</Text>
                 </Pressable>
               </View>
 
-              <Text style={s.statusMsg}>{msg}</Text>
+              {activeTab === "about" ? (
+                <AboutTab novel={novel} />
+              ) : (
+                <TableOfContentsTab
+                  novelId={novelId}
+                  chapters={chapters}
+                  onOpenChapter={(chapterId) =>
+                    router.push({
+                      pathname: "/novel/[id]/chapter/[chapterId]",
+                      params: { id: String(novelId), chapterId: String(chapterId) },
+                    })
+                  }
+                  onAskDeleteChapter={askDeleteChapter}
+                />
+              )}
             </View>
-          </View>
+          </ScrollView>
 
-          {/* TABS */}
-          <View style={{ marginTop: 18 }}>
-            <View style={s.tabsRow}>
+          {/* Floating dropdown menu in a top-level Modal */}
+          <Modal
+            transparent
+            visible={menuOpen}
+            animationType="fade"
+            onRequestClose={() => setMenuOpen(false)}
+          >
+            <Pressable style={s.modalBackdrop} onPress={() => setMenuOpen(false)} />
+            <View style={[s.floatMenu, { top: menuTop }]}>
               <Pressable
-                onPress={() => setActiveTab("about")}
-                style={[s.tabBtn, activeTab === "about" && s.tabBtnActive]}
+                style={s.menuItem}
+                onPress={() => { setMenuOpen(false); setEditOpen(true); }}
               >
-                <Text style={[s.tabTxt, activeTab === "about" && s.tabTxtActive]}>About</Text>
+                <Ionicons name="create-outline" size={18} color={theme.colors.text} />
+                <Text style={s.menuLabel}>Edit novel</Text>
               </Pressable>
               <Pressable
-                onPress={() => setActiveTab("toc")}
-                style={[s.tabBtn, activeTab === "toc" && s.tabBtnActive]}
+                style={s.menuItem}
+                onPress={() => { setMenuOpen(false); askDeleteNovel(); }}
               >
-                <Text style={[s.tabTxt, activeTab === "toc" && s.tabTxtActive]}>Table of Contents</Text>
+                <Ionicons name="trash-outline" size={18} color={theme.colors.text} />
+                <Text style={s.menuLabel}>Remove from Library</Text>
               </Pressable>
             </View>
+          </Modal>
+        </>
+      )}
 
-            {activeTab === "about" ? (
-              <AboutTab novel={novel} />
-            ) : (
-              <TableOfContentsTab
-                novelId={novelId}
-                chapters={chapters}
-                onOpenChapter={(chapterId) => router.push({
-                  pathname: "/novel/[id]/chapter/[chapterId]",
-                  params: { id: String(novelId), chapterId: String(chapterId) },
-                })}
-                onAskDeleteChapter={askDeleteChapter}
-              />
-            )}
+      {/* Add Chapter Menu */}
+      <Modal transparent visible={addOpen} animationType="fade" onRequestClose={() => setAddOpen(false)}>
+        <Pressable style={s.modalBackdrop} onPress={() => setAddOpen(false)} />
+        <View style={s.addMenu}>
+          <Text style={s.addTitle}>Add Chapter</Text>
+          <TouchableOpacity style={s.addItem} onPress={onAddEmpty}>
+            <Ionicons name="document-outline" size={20} color={theme.colors.text} />
+            <Text style={s.addLabel}>Empty</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.addItem} onPress={onImportTxt}>
+            <Ionicons name="document-text-outline" size={20} color={theme.colors.text} />
+            <Text style={s.addLabel}>Import TXT</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.addItem}
+            onPress={() => { setAddOpen(false); setImportOpen(true); }}
+          >
+            <Ionicons name="book-outline" size={20} color={theme.colors.text} />
+            <Text style={s.addLabel}>Import EPUB</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[s.addItem, { justifyContent: "center" }]} onPress={() => setAddOpen(false)}>
+            <Text style={[s.addLabel, { color: theme.colors.textDim }]}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+
+      {/* EPUB importer sheet */}
+      <AddChaptersEPUB
+        visible={importOpen}
+        novelId={novelId}
+        onClose={() => setImportOpen(false)}
+        onImported={() => { setImportOpen(false); reloadAll(); }}
+      />
+
+      {/* Edit sheet */}
+      <EditNovelSheet
+        visible={editOpen}
+        novelId={novelId}
+        onClose={() => setEditOpen(false)}
+        onSaved={() => { setEditOpen(false); reloadAll(); }}
+      />
+
+      {/* Confirm delete novel */}
+      <Modal transparent visible={confirmDelNovel} animationType="fade" onRequestClose={cancelDeleteNovel}>
+        <Pressable style={s.modalBackdrop} onPress={cancelDeleteNovel} />
+        <View style={s.centerWrap}>
+          <View style={s.confirmCard}>
+            <Text style={s.confirmText}>Are you sure you want to delete this novel?</Text>
+            <View style={s.confirmActions}>
+              <Pressable style={s.btnGhost} onPress={cancelDeleteNovel}><Text style={s.btnGhostText}>No</Text></Pressable>
+              <View style={{ flex: 1 }} />
+              <Pressable style={s.btn} onPress={confirmDeleteNovel}><Text style={s.btnText}>Yes</Text></Pressable>
+            </View>
           </View>
-        </ScrollView>
-    </>
-  )
-}
+        </View>
+      </Modal>
 
-{ menuOpen && <Pressable style={s.scrim} onPress={() => setMenuOpen(false)} /> }
-
-{/* Add Chapter Menu */ }
-<Modal transparent visible={addOpen} animationType="fade" onRequestClose={() => setAddOpen(false)}>
-  <Pressable style={s.modalBackdrop} onPress={() => setAddOpen(false)} />
-  <View style={s.addMenu}>
-    <Text style={s.addTitle}>Add Chapter</Text>
-    <TouchableOpacity style={s.addItem} onPress={onAddEmpty}>
-      <Ionicons name="document-outline" size={20} color={theme.colors.text} />
-      <Text style={s.addLabel}>Empty</Text>
-    </TouchableOpacity>
-    <TouchableOpacity style={s.addItem} onPress={onImportTxt}>
-      <Ionicons name="document-text-outline" size={20} color={theme.colors.text} />
-      <Text style={s.addLabel}>Import TXT</Text>
-    </TouchableOpacity>
-    <TouchableOpacity style={s.addItem} onPress={() => { setAddOpen(false); setImportOpen(true); }}>
-      <Ionicons name="book-outline" size={20} color={theme.colors.text} />
-      <Text style={s.addLabel}>Import EPUB</Text>
-    </TouchableOpacity>
-
-    <TouchableOpacity style={[s.addItem, { justifyContent: "center" }]} onPress={() => setAddOpen(false)}>
-      <Text style={[s.addLabel, { color: theme.colors.textDim }]}>Cancel</Text>
-    </TouchableOpacity>
-  </View>
-</Modal>
-
-{/* EPUB importer sheet */ }
-<AddChaptersEPUB
-  visible={importOpen}
-  novelId={novelId}
-  onClose={() => setImportOpen(false)}
-  onImported={() => { setImportOpen(false); reloadAll(); }}
-/>
-
-{/* Edit sheet */ }
-<EditNovelSheet
-  visible={editOpen}
-  novelId={novelId}
-  onClose={() => setEditOpen(false)}
-  onSaved={() => { setEditOpen(false); reloadAll(); }}
-/>
-
-{/* Confirm delete novel */ }
-<Modal transparent visible={confirmDelNovel} animationType="fade" onRequestClose={cancelDeleteNovel}>
-  <Pressable style={s.modalBackdrop} onPress={cancelDeleteNovel} />
-  <View style={s.centerWrap}>
-    <View style={s.confirmCard}>
-      <Text style={s.confirmText}>Are you sure you want to delete this novel?</Text>
-      <View style={s.confirmActions}>
-        <Pressable style={s.btnGhost} onPress={cancelDeleteNovel}><Text style={s.btnGhostText}>No</Text></Pressable>
-        <View style={{ flex: 1 }} />
-        <Pressable style={s.btn} onPress={confirmDeleteNovel}><Text style={s.btnText}>Yes</Text></Pressable>
-      </View>
+      {/* Confirm delete chapter */}
+      <Modal transparent visible={confirmDel.open} animationType="fade" onRequestClose={cancelDeleteChapter}>
+        <Pressable style={s.modalBackdrop} onPress={cancelDeleteChapter} />
+        <View style={s.centerWrap}>
+          <View style={s.confirmCard}>
+            <Text style={s.confirmText}>Are you sure you want to delete the chapter?</Text>
+            <View style={s.confirmActions}>
+              <Pressable style={s.btnGhost} onPress={cancelDeleteChapter}><Text style={s.btnGhostText}>No</Text></Pressable>
+              <View style={{ flex: 1 }} />
+              <Pressable style={s.btn} onPress={confirmDeleteChapter}><Text style={s.btnText}>Yes</Text></Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
-  </View>
-</Modal>
-
-{/* Confirm delete chapter */ }
-<Modal transparent visible={confirmDel.open} animationType="fade" onRequestClose={cancelDeleteChapter}>
-  <Pressable style={s.modalBackdrop} onPress={cancelDeleteChapter} />
-  <View style={s.centerWrap}>
-    <View style={s.confirmCard}>
-      <Text style={s.confirmText}>Are you sure you want to delete the chapter?</Text>
-      <View style={s.confirmActions}>
-        <Pressable style={s.btnGhost} onPress={cancelDeleteChapter}><Text style={s.btnGhostText}>No</Text></Pressable>
-        <View style={{ flex: 1 }} />
-        <Pressable style={s.btn} onPress={confirmDeleteChapter}><Text style={s.btnText}>Yes</Text></Pressable>
-      </View>
-    </View>
-  </View>
-</Modal>
-    </View >
   );
 }
 
@@ -408,7 +515,12 @@ const styles = createStyles((t) => StyleSheet.create({
   hero: { flexDirection: "row", gap: 16, alignItems: "flex-start" },
 
   coverBox: { width: 120, height: 180, position: "relative" },
-  coverLg: { width: "100%", height: "100%", borderRadius: t.radius.lg, backgroundColor: "#1b222c", alignItems: "center", justifyContent: "center" },
+  coverLg: {
+    width: "100%", height: "100%",
+    borderRadius: t.radius.lg, backgroundColor: "#1b222c",
+    alignItems: "center", justifyContent: "center",
+    overflow: "hidden",
+  },
   coverText: { color: "#c3c7d1", fontSize: 20, fontWeight: "800" },
 
   overlayBtns: { position: "absolute", top: 6, right: 6, flexDirection: "row", gap: 6 },
@@ -417,10 +529,17 @@ const styles = createStyles((t) => StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.35)", borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.25)",
   },
 
-  scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: 'transparent', zIndex: 100, elevation: 8 },
-  menu: {
-    position: "absolute", top: 40, left: 86, backgroundColor: t.colors.card, borderRadius: t.radius.md,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border, overflow: "hidden", zIndex: 101, elevation: 12,
+  // Floating menu (Modal)
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)" },
+  floatMenu: {
+    position: "absolute",
+    left: 106, // anchored near the cover
+    backgroundColor: t.colors.card,
+    borderRadius: t.radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.colors.border,
+    overflow: "hidden",
+    elevation: 12,
     shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
   },
   menuItem: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 12 },
@@ -434,6 +553,9 @@ const styles = createStyles((t) => StyleSheet.create({
   // tiny chips under title
   smallChip: { backgroundColor: "rgba(127,127,127,0.18)", borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10 },
   smallChipTxt: { color: t.colors.text, fontWeight: "700", fontSize: t.font.sm },
+
+  // Progress label on the right of the button
+  readStats: { color: t.colors.textDim, fontWeight: "600" },
 
   // Tabs
   tabsRow: {
@@ -449,9 +571,8 @@ const styles = createStyles((t) => StyleSheet.create({
   emptyTitle: { color: t.colors.text, fontSize: t.font.lg, fontWeight: "700" },
 
   // Add sheet
-  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)" },
   addMenu: {
-    position: "absolute", left: 16, right: 16, bottom: 24, backgroundColor: t.colors.card, borderRadius: t.radius.lg,
+    position: "absolute", left: 16, right: 16, bottom: 0, backgroundColor: t.colors.card, borderRadius: t.radius.lg,
     borderWidth: StyleSheet.hairlineWidth, borderColor: t.colors.border, padding: 12,
   },
   addTitle: { color: t.colors.text, fontWeight: "800", fontSize: t.font.md, marginBottom: 8 },
