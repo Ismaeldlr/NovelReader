@@ -9,6 +9,7 @@ import * as FileSystem from "expo-file-system";
 import AddChaptersEPUB from "../Components/AddChaptersEPUB";
 import EditNovelSheet from "../Components/EditNovelSheet";
 import { Image as ExpoImage } from "expo-image";
+import { getContinueForNovel, getNovelProgressSummary } from "../../src/db/reading_progress";
 
 // ---- Types ----
 export type NovelRow = {
@@ -35,9 +36,9 @@ export type ChapterRow = {
 // ---- Helpers ----
 function normalizeCoverUri(p?: string | null): string | null {
   if (!p) return null;
-  if (/^https?:\/\//i.test(p)) return encodeURI(p);         // encode remote URLs
-  if (/^(file|content|data):/i.test(p)) return p;            // already a valid scheme
-  return "file://" + p.replace(/^\/+/, "");                  // prefix local absolute paths
+  if (/^https?:\/\//i.test(p)) return encodeURI(p);  
+  if (/^(file|content|data):/i.test(p)) return p;    
+  return "file://" + p.replace(/^\/+/, "");          
 }
 
 function buildCoverSource(uri: string | null) {
@@ -108,6 +109,10 @@ export default function NovelDetail() {
   const [confirmDel, setConfirmDel] = useState<{ open: boolean; chapterId: number | null }>({ open: false, chapterId: null });
   const [confirmDelNovel, setConfirmDelNovel] = useState(false);
 
+  // Continue/Progress UI
+  const [continueTarget, setContinueTarget] = useState<{ chapter_id: number; position_pct: number } | null>(null);
+  const [readStats, setReadStats] = useState<{ total: number; readCount: number; percent: number }>({ total: 0, readCount: 0, percent: 0 });
+
   const dbRef = useRef<any>(null);
 
   useEffect(() => {
@@ -138,6 +143,26 @@ export default function NovelDetail() {
       [novelId]
     );
     setChapters(ch as ChapterRow[]);
+
+    // continue + progress
+    const cont = await getContinueForNovel(novelId); // { chapter_id, position_pct } | undefined
+    setContinueTarget(cont ?? null);
+
+    const sum = await getNovelProgressSummary(novelId); // { totalChapters, maxReadSeq, percent }
+    const total = Number(sum.totalChapters ?? 0);
+    const lastSeq = Number(sum.maxReadSeq ?? 0);
+    const within = Math.max(0, Math.min(1, Number(cont?.position_pct ?? 0)));
+
+    const overall = total ? Math.min(1, Math.max(0, ((Math.max(0, lastSeq - 1)) + within) / total)) : 0;
+
+    let readCount = Math.max(0, lastSeq);
+    if (within >= 0.01 && cont?.chapter_id) {
+      readCount = Math.max(readCount, chapters.findIndex(c => c.id === cont.chapter_id) + 1);
+    }
+    readCount = Math.min(total, readCount);
+
+    setReadStats({ total, readCount, percent: overall });
+
     setMsg("Ready");
   }
 
@@ -170,9 +195,10 @@ export default function NovelDetail() {
 
   function askDeleteNovel() { setConfirmDelNovel(true); }
   async function confirmDeleteNovel() {
-    setConfirmDelNovel(false);
+    setConfirmDeleteNovel(false);
     if (novel) await removeNovel(novel.id);
   }
+  function setConfirmDeleteNovel(v: boolean) { setConfirmDelNovel(v); }
   function cancelDeleteNovel() { setConfirmDelNovel(false); }
 
   async function nextSeq(): Promise<number> {
@@ -242,6 +268,12 @@ export default function NovelDetail() {
   const scrH = Dimensions.get("window").height;
   const menuTop = Math.max(72, Math.min(((menuAnchorY ?? 140) - 10), scrH - 160));
 
+  const buttonLabel = continueTarget?.chapter_id ? "Continue reading" : "Start reading";
+  const continueChapterId = continueTarget?.chapter_id || firstChapterId;
+  const percentLabel = `${Math.round(readStats.percent * 100)}%`;
+  const chaptersLabel = `${readStats.readCount} / ${readStats.total} chapters read ${percentLabel}`;
+  const showChaptersBelow = !!continueTarget?.chapter_id;
+
   return (
     <View style={s.page}>
       {/* Top bar */}
@@ -303,23 +335,29 @@ export default function NovelDetail() {
                   <View style={s.smallChip}><Text style={s.smallChipTxt}>{novel.lang_original || "—"}</Text></View>
                 </View>
 
-                {/* Start / Continue button */}
-                <View style={{ marginTop: 14, flexDirection: "row", gap: 8 }}>
+                {/* Start / Continue row + progress on right */}
+                <View style={{ marginTop: 14 }}>
                   <Pressable
-                    style={[s.btn, { paddingHorizontal: 16 }]}
-                    disabled={!firstChapterId}
+                    style={[s.btn, { paddingHorizontal: 16, alignSelf: 'flex-start' }]}
+                    disabled={!continueChapterId}
                     onPress={() => {
-                      if (!firstChapterId) return;
+                      if (!continueChapterId) return;
                       router.push({
                         pathname: "/novel/[id]/chapter/[chapterId]",
-                        params: { id: String(novelId), chapterId: String(firstChapterId) }
+                        params: { id: String(novelId), chapterId: String(continueChapterId) }
                       });
                     }}
                   >
-                    <Text style={s.btnText}>
-                      {firstChapterId ? "Start reading" : "Start reading"}
-                    </Text>
+                    <Text style={s.btnText}>{buttonLabel}</Text>
                   </Pressable>
+                  {showChaptersBelow ? (
+                    <Text style={[s.readStats, { marginTop: 6, alignSelf: 'flex-start' }]}>{chaptersLabel}</Text>
+                  ) : (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 0 }}>
+                      <View style={{ flex: 1 }} />
+                      <Text style={s.readStats}>{chaptersLabel}</Text>
+                    </View>
+                  )}
                 </View>
 
                 <Text style={s.statusMsg}>{msg}</Text>
@@ -515,6 +553,9 @@ const styles = createStyles((t) => StyleSheet.create({
   // tiny chips under title
   smallChip: { backgroundColor: "rgba(127,127,127,0.18)", borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10 },
   smallChipTxt: { color: t.colors.text, fontWeight: "700", fontSize: t.font.sm },
+
+  // Progress label on the right of the button
+  readStats: { color: t.colors.textDim, fontWeight: "600" },
 
   // Tabs
   tabsRow: {

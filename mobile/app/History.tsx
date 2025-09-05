@@ -1,11 +1,12 @@
 // app/History.tsx
-import { useEffect, useRef, useState, useMemo } from "react";
-import { View, Text, FlatList, Pressable, StyleSheet, Image } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { View, Text, FlatList, Pressable, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme, createStyles } from "../src/theme";
 import { initDb } from "../src/db";
 import { getDeviceId } from "../src/db/reading_progress"; // adjust path if needed
+import { Image as ExpoImage } from "expo-image";
 
 type HistoryRow = {
   id: number;
@@ -19,6 +20,49 @@ type HistoryRow = {
   chapter_count: number | null;         // total chapters
   last_read_at: number;                 // unixepoch()
 };
+
+// --- helpers for covers ---
+function normalizeCoverUri(p?: string | null): string | null {
+  if (!p) return null;
+  if (/^https?:\/\//i.test(p)) return encodeURI(p); // encode remote URLs
+  if (/^(file|content|data):/i.test(p)) return p;    // already valid scheme
+  return "file://" + p.replace(/^\/+/, "");          // prefix local absolute paths
+}
+function buildCoverSource(uri: string | null) {
+  if (!uri) return null as any;
+  const isNU = /^https?:\/\/cdn\.novelupdates\.com\//i.test(uri);
+  return isNU ? { uri, headers: { Referer: "https://www.novelupdates.com/" } } : { uri };
+}
+function initials(title: string) {
+  const words = title.trim().split(/\s+/).slice(0, 2);
+  return words.map(w => w[0]?.toUpperCase() ?? "").join("");
+}
+function CoverImage({
+  coverUri,
+  title,
+  styleImage,
+  styleFallbackText,
+}: {
+  coverUri: string | null;
+  title: string;
+  styleImage: any;
+  styleFallbackText: any;
+}) {
+  const [ok, setOk] = useState(true);
+  const source = coverUri ? buildCoverSource(coverUri) : null;
+  if (source && ok) {
+    return (
+      <ExpoImage
+        source={source}
+        style={styleImage}
+        contentFit="cover"
+        cachePolicy="disk"
+        onError={() => setOk(false)}
+      />
+    );
+  }
+  return <Text style={styleFallbackText}>{initials(title)}</Text>;
+}
 
 export default function History() {
   const { theme } = useTheme();
@@ -48,8 +92,6 @@ export default function History() {
     const db = dbRef.current; if (!db) return;
     const device = await getDeviceId();
 
-    // Pull the latest per-novel reading state for this device.
-    // Join chapters to get the last seq, and novel_stats for total chapters.
     const q = `
       SELECT
         n.id,
@@ -74,24 +116,14 @@ export default function History() {
     setStatus((data?.length ?? 0) ? "Ready" : "No recent reading yet");
   }
 
-  function normalizeCoverUri(p?: string | null): string | null {
-    if (!p) return null;
-    if (/^(file|content|https?):|^data:/.test(p)) return p;
-    return "file://" + p.replace(/^\/+/, "");
-  }
-
   function pctForRow(r: HistoryRow): number {
     const total = Math.max(0, Number(r.chapter_count ?? 0));
     const seq = Math.max(0, Number(r.last_seq ?? 0));
     const within = Math.max(0, Math.min(1, Number(r.last_chapter_position ?? 0)));
     if (!total) return 0;
-
-    // Smooth overall progress: (chapters fully read + current position) / total
-    // e.g., if you’re on seq 10 with 30% inside, that’s (9 + 0.3)/total.
-    const overall = ((Math.max(0, seq - 1)) + within) / total;
-    return Math.max(0, Math.min(1, overall));
+    // overall = (chapters fully read + current chapter position) / total
+    return Math.max(0, Math.min(1, ((Math.max(0, seq - 1)) + within) / total));
   }
-
   function pctLabel(pct: number) {
     return `${Math.round(pct * 1000) / 10}%`;
   }
@@ -116,11 +148,11 @@ export default function History() {
           ItemSeparatorComponent={() => <View style={{ height: theme.spacing(2) }} />}
           renderItem={({ item }) => {
             const pct = pctForRow(item);
+            const coverUri = normalizeCoverUri(item.cover_path);
             return (
               <Pressable
                 style={s.card}
                 onPress={() => {
-                  // Continue reading: open last chapter (if known) or the novel page.
                   if (item.last_chapter_id) {
                     router.push({
                       pathname: "/novel/[id]/chapter/[chapterId]",
@@ -133,11 +165,12 @@ export default function History() {
                 android_ripple={{ color: "#222" }}
               >
                 <View style={s.cover}>
-                  {item.cover_path ? (
-                    <Image
-                      source={{ uri: normalizeCoverUri(item.cover_path) as string }}
-                      style={s.coverImg}
-                      resizeMode="cover"
+                  {coverUri ? (
+                    <CoverImage
+                      coverUri={coverUri}
+                      title={item.title}
+                      styleImage={s.coverImg}
+                      styleFallbackText={s.coverText}
                     />
                   ) : (
                     <Text style={s.coverText}>{initials(item.title)}</Text>
@@ -185,11 +218,6 @@ export default function History() {
       )}
     </View>
   );
-}
-
-function initials(title: string) {
-  const words = title.trim().split(/\s+/).slice(0, 2);
-  return words.map(w => w[0]?.toUpperCase() ?? "").join("");
 }
 
 const styles = createStyles((t) => StyleSheet.create({

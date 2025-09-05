@@ -4,12 +4,9 @@ import { useLocalSearchParams, Link, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme, createStyles } from "../../../../src/theme";
 import { initDb } from "../../../../src/db";
-
-// Save progress helper
 import { saveReadingProgress } from "../../../../src/db/reading_progress";
-
-// NEW: bottom sheet
 import ReaderSheet from "./[chapter]/ReaderSheet";
+import { getReaderPrefs, updateReaderPrefs, type ReaderPrefs } from "../../../../src/prefs/reader_prefs";
 
 type ChapterListItem = { id: number; seq: number; display_title: string | null };
 type ChapterVariant = { id: number; title: string | null; content: string; variant_type: string; lang: string };
@@ -56,6 +53,35 @@ export default function Reader() {
   const currentPctRef = useRef(0);
   const saveMetaRef = useRef({ lastTs: 0, lastPct: 0 });
 
+  // --- prefs: load on mount (and whenever screen re-mounts for a different chapter) ---
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const prefs = await getReaderPrefs();
+      if (!alive) return;
+      setFontFamily(prefs.fontFamily ?? undefined);
+      setFontSize(prefs.fontSize ?? 16);
+      setLineHeight(prefs.lineHeight ?? "default");
+    })();
+    return () => { alive = false; };
+  }, [chId]); // re-apply on chapter change (fast, from AsyncStorage)
+
+  // --- prefs: save when these three change, debounced ---
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      void updateReaderPrefs({
+        fontFamily: fontFamily ?? null,
+        fontSize,
+        lineHeight,
+      });
+    }, 200); // small debounce to avoid spam writes
+    return () => {
+      if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+    };
+  }, [fontFamily, fontSize, lineHeight]);
+  
   useEffect(() => {
     let alive = true;
     (async () => {
