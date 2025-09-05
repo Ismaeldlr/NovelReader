@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, Modal, TouchableOpacity, Image, ScrollView, Dimensions } from "react-native";
+import { View, Text, StyleSheet, Pressable, Modal, TouchableOpacity, ScrollView, Dimensions } from "react-native";
 import { useLocalSearchParams, useRouter, Link } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme, createStyles } from "../../src/theme";
@@ -8,6 +8,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system";
 import AddChaptersEPUB from "../Components/AddChaptersEPUB";
 import EditNovelSheet from "../Components/EditNovelSheet";
+import { Image as ExpoImage } from "expo-image";
 
 // ---- Types ----
 export type NovelRow = {
@@ -34,8 +35,20 @@ export type ChapterRow = {
 // ---- Helpers ----
 function normalizeCoverUri(p?: string | null): string | null {
   if (!p) return null;
-  if (/^(file|content|https?):|^data:/.test(p)) return p;
-  return "file://" + p.replace(/^\/+/, "");
+  if (/^https?:\/\//i.test(p)) return encodeURI(p);         // encode remote URLs
+  if (/^(file|content|data):/i.test(p)) return p;            // already a valid scheme
+  return "file://" + p.replace(/^\/+/, "");                  // prefix local absolute paths
+}
+
+function buildCoverSource(uri: string | null) {
+  if (!uri) return null as any;
+  const isNU = /^https?:\/\/cdn\.novelupdates\.com\//i.test(uri);
+  return isNU ? { uri, headers: { Referer: "https://www.novelupdates.com/" } } : { uri };
+}
+
+function initials(title: string) {
+  const words = title.trim().split(/\s+/).slice(0, 2);
+  return words.map(w => w[0]?.toUpperCase() ?? "").join("");
 }
 
 // Tabs
@@ -44,6 +57,34 @@ type TabKey = "about" | "toc";
 // Lazy tab components
 import AboutTab from "./[id]/AboutTab";
 import TableOfContentsTab from "./[id]/TableOfContentsTab";
+
+// Small helper: cover with graceful fallback
+function CoverImage({
+  coverUri,
+  title,
+  styleImage,
+  styleFallbackText,
+}: {
+  coverUri: string | null;
+  title: string;
+  styleImage: any;
+  styleFallbackText: any;
+}) {
+  const [ok, setOk] = useState(true);
+  const source = coverUri ? buildCoverSource(coverUri) : null;
+  if (source && ok) {
+    return (
+      <ExpoImage
+        source={source}
+        style={styleImage}
+        contentFit="cover"
+        onError={() => setOk(false)}
+        cachePolicy="disk"
+      />
+    );
+  }
+  return <Text style={styleFallbackText}>{initials(title)}</Text>;
+}
 
 export default function NovelDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -98,11 +139,6 @@ export default function NovelDetail() {
     );
     setChapters(ch as ChapterRow[]);
     setMsg("Ready");
-  }
-
-  function initials(title: string) {
-    const words = title.trim().split(/\s+/).slice(0, 2);
-    return words.map(w => w[0]?.toUpperCase() ?? "").join("");
   }
 
   async function removeNovel(nid: number) {
@@ -231,7 +267,14 @@ export default function NovelDetail() {
             <View style={s.hero}>
               <View style={s.coverBox}>
                 {novel.cover_path ? (
-                  <Image source={{ uri: normalizeCoverUri(novel.cover_path) as string }} style={s.coverLg} resizeMode="cover" />
+                  <View style={s.coverLg}>
+                    <CoverImage
+                      coverUri={normalizeCoverUri(novel.cover_path)}
+                      title={novel.title}
+                      styleImage={s.coverLg}
+                      styleFallbackText={s.coverText}
+                    />
+                  </View>
                 ) : (
                   <View style={s.coverLg}><Text style={s.coverText}>{initials(novel.title)}</Text></View>
                 )}
@@ -434,7 +477,12 @@ const styles = createStyles((t) => StyleSheet.create({
   hero: { flexDirection: "row", gap: 16, alignItems: "flex-start" },
 
   coverBox: { width: 120, height: 180, position: "relative" },
-  coverLg: { width: "100%", height: "100%", borderRadius: t.radius.lg, backgroundColor: "#1b222c", alignItems: "center", justifyContent: "center" },
+  coverLg: {
+    width: "100%", height: "100%",
+    borderRadius: t.radius.lg, backgroundColor: "#1b222c",
+    alignItems: "center", justifyContent: "center",
+    overflow: "hidden",
+  },
   coverText: { color: "#c3c7d1", fontSize: 20, fontWeight: "800" },
 
   overlayBtns: { position: "absolute", top: 6, right: 6, flexDirection: "row", gap: 6 },
@@ -447,12 +495,14 @@ const styles = createStyles((t) => StyleSheet.create({
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)" },
   floatMenu: {
     position: "absolute",
-    left: 106,
-    top: 140,
+    left: 106, // anchored near the cover
     backgroundColor: t.colors.card,
     borderRadius: t.radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: t.colors.border,
+    overflow: "hidden",
+    elevation: 12,
+    shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
   },
   menuItem: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 12 },
   menuLabel: { color: t.colors.text },

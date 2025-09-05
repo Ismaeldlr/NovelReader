@@ -1,14 +1,64 @@
 // app/Library.tsx
 import { useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, Pressable, StyleSheet, Image, Modal, Dimensions } from "react-native";
+import { View, Text, FlatList, Pressable, StyleSheet, Modal, Dimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme, createStyles } from "../src/theme";
 import { initDb } from "../src/db";
 import AddNovelSheet from "./Components/AddNovelSheet";
 import EditNovelSheet from "./Components/EditNovelSheet";
+import { Image as ExpoImage } from "expo-image"; // <-- use expo-image for headers & caching
 
 type NovelRow = { id: number; title: string; author: string | null; description?: string | null; cover_path?: string | null };
+
+// Normalize any cover path into a RN-friendly URI
+function normalizeCoverUri(p?: string | null): string | null {
+  if (!p) return null;
+  if (/^https?:\/\//i.test(p)) return encodeURI(p);
+  if (/^(file|content|data):/i.test(p)) return p;
+  return "file://" + p.replace(/^\/+/, "");
+}
+
+function initials(title: string) {
+  const words = title.trim().split(/\s+/).slice(0, 2);
+  return words.map(w => w[0]?.toUpperCase() ?? "").join("");
+}
+
+// Build a source for expo-image, injecting Referer for novelupdates CDN
+function buildCoverSource(uri: string | null) {
+  if (!uri) return null as any;
+  const isNU = /^https?:\/\/cdn\.novelupdates\.com\//i.test(uri);
+  return isNU ? { uri, headers: { Referer: "https://www.novelupdates.com/" } } : { uri };
+}
+
+// Small helper with graceful fallback to initials if image fails
+function CoverImage({
+  coverUri,
+  title,
+  styleImage,
+  styleFallbackText,
+}: {
+  coverUri: string | null;
+  title: string;
+  styleImage: any;
+  styleFallbackText: any;
+}) {
+  const [ok, setOk] = useState(true);
+  const source = coverUri ? buildCoverSource(coverUri) : null;
+  if (source && ok) {
+    return (
+      <ExpoImage
+        source={source}
+        style={styleImage}
+        contentFit="cover"
+        onError={() => setOk(false)}
+        // optional: stronger caching
+        cachePolicy="disk"
+      />
+    );
+  }
+  return <Text style={styleFallbackText}>{initials(title)}</Text>;
+}
 
 export default function Library() {
   const { theme } = useTheme();
@@ -55,12 +105,6 @@ export default function Library() {
     await reload();
   }
 
-  function normalizeCoverUri(p?: string | null) {
-    if (!p) return null;
-    if (/^(file|content|https?):|^data:/.test(p)) return p;
-    return "file://" + p.replace(/^\/+/, "");
-  }
-
   const active = novels.find(n => n.id === menuForId) || null;
   const scrH = Dimensions.get("window").height;
   const menuTop = Math.max(72, Math.min(((menuAnchorY ?? 200) - 40), scrH - 160)); // keep on-screen
@@ -81,46 +125,45 @@ export default function Library() {
         <FlatList
           data={novels}
           keyExtractor={(it) => String(it.id)}
-          contentContainerStyle={{ paddingBottom: theme.spacing(96/4), paddingHorizontal: theme.spacing(0) }}
+          contentContainerStyle={{ paddingBottom: theme.spacing(96 / 4), paddingHorizontal: theme.spacing(0) }}
           ItemSeparatorComponent={() => <View style={{ height: theme.spacing(2) }} />}
-          renderItem={({ item }) => (
-            <Pressable
-              style={s.card}
-              onPress={() => router.push({ pathname: "/novel/[id]", params: { id: String(item.id) } })}
-              android_ripple={{ color: "#222" }}
-            >
-              <View style={s.cover}>
-                {item.cover_path ? (
-                  <Image
-                    source={{ uri: normalizeCoverUri(item.cover_path) as string }}
-                    style={s.coverImg}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <Text style={s.coverText}>{initials(item.title)}</Text>
-                )}
-              </View>
-
-              <View style={s.meta}>
-                <Text numberOfLines={1} style={s.title}>{item.title}</Text>
-                <Text numberOfLines={1} style={s.author}>{item.author || "Unknown author"}</Text>
-                {!!item.description && <Text numberOfLines={2} style={s.desc}>{item.description}</Text>}
-              </View>
-
-              {/* overflow button */}
+          renderItem={({ item }) => {
+            const normalized = normalizeCoverUri(item.cover_path);
+            return (
               <Pressable
-                onPress={(e: any) => {
-                  e.stopPropagation();
-                  setMenuForId(item.id);
-                  // capture where user tapped so we can place the floating menu nearby
-                  setMenuAnchorY(e?.nativeEvent?.pageY ?? null);
-                }}
-                style={s.menuBtn}
+                style={s.card}
+                onPress={() => router.push({ pathname: "/novel/[id]", params: { id: String(item.id) } })}
+                android_ripple={{ color: "#222" }}
               >
-                <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
+                <View style={s.cover}>
+                  <CoverImage
+                    coverUri={normalized}
+                    title={item.title}
+                    styleImage={s.coverImg}
+                    styleFallbackText={s.coverText}
+                  />
+                </View>
+
+                <View style={s.meta}>
+                  <Text numberOfLines={1} style={s.title}>{item.title}</Text>
+                  <Text numberOfLines={1} style={s.author}>{item.author || "Unknown author"}</Text>
+                  {!!item.description && <Text numberOfLines={2} style={s.desc}>{item.description}</Text>}
+                </View>
+
+                {/* overflow button */}
+                <Pressable
+                  onPress={(e: any) => {
+                    e.stopPropagation();
+                    setMenuForId(item.id);
+                    setMenuAnchorY(e?.nativeEvent?.pageY ?? null);
+                  }}
+                  style={s.menuBtn}
+                >
+                  <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
+                </Pressable>
               </Pressable>
-            </Pressable>
-          )}
+            );
+          }}
         />
       )}
 
@@ -143,7 +186,7 @@ export default function Library() {
         onSaved={() => { setEditOpen(false); reload(); }}
       />
 
-      {/* === TOP-LEVEL MODAL MENU (over everything; not blocked by scrim) === */}
+      {/* === TOP-LEVEL MODAL MENU === */}
       <Modal
         transparent
         visible={menuForId != null}
@@ -181,11 +224,6 @@ export default function Library() {
       </Modal>
     </View>
   );
-}
-
-function initials(title: string) {
-  const words = title.trim().split(/\s+/).slice(0, 2);
-  return words.map(w => w[0]?.toUpperCase() ?? "").join("");
 }
 
 const styles = createStyles((t) => StyleSheet.create({
@@ -233,7 +271,7 @@ const styles = createStyles((t) => StyleSheet.create({
 
   menuBtn: { paddingHorizontal: 8, paddingVertical: 4 },
 
-  // === Modal overlay ===
+  // Modal overlay
   modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)" },
   menuModal: {
     position: "absolute",
