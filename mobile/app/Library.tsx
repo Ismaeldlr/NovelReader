@@ -1,6 +1,6 @@
-// app/Library.tsx (or screens/Library.tsx)
+// app/Library.tsx
 import { useEffect, useRef, useState } from "react";
-import { View, Text, FlatList, Pressable, StyleSheet, Image } from "react-native";
+import { View, Text, FlatList, Pressable, StyleSheet, Image, Modal, Dimensions } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme, createStyles } from "../src/theme";
@@ -21,6 +21,7 @@ export default function Library() {
 
   // menu + edit state
   const [menuForId, setMenuForId] = useState<number | null>(null);
+  const [menuAnchorY, setMenuAnchorY] = useState<number | null>(null); // screen Y where the 3-dots was tapped
   const [editOpen, setEditOpen] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
 
@@ -60,6 +61,10 @@ export default function Library() {
     return "file://" + p.replace(/^\/+/, "");
   }
 
+  const active = novels.find(n => n.id === menuForId) || null;
+  const scrH = Dimensions.get("window").height;
+  const menuTop = Math.max(72, Math.min(((menuAnchorY ?? 200) - 40), scrH - 160)); // keep on-screen
+
   return (
     <View style={s.container}>
       <View style={s.header}>
@@ -76,7 +81,7 @@ export default function Library() {
         <FlatList
           data={novels}
           keyExtractor={(it) => String(it.id)}
-          contentContainerStyle={{ paddingBottom: 96, paddingHorizontal: theme.spacing(4) }}
+          contentContainerStyle={{ paddingBottom: theme.spacing(96/4), paddingHorizontal: theme.spacing(0) }}
           ItemSeparatorComponent={() => <View style={{ height: theme.spacing(2) }} />}
           renderItem={({ item }) => (
             <Pressable
@@ -104,39 +109,19 @@ export default function Library() {
 
               {/* overflow button */}
               <Pressable
-                onPress={(e) => { e.stopPropagation(); setMenuForId(menuForId === item.id ? null : item.id); }}
+                onPress={(e: any) => {
+                  e.stopPropagation();
+                  setMenuForId(item.id);
+                  // capture where user tapped so we can place the floating menu nearby
+                  setMenuAnchorY(e?.nativeEvent?.pageY ?? null);
+                }}
                 style={s.menuBtn}
               >
                 <Ionicons name="ellipsis-vertical" size={18} color={theme.colors.text} />
               </Pressable>
-
-              {/* per-item menu (above scrim via zIndex/elevation) */}
-              {menuForId === item.id && (
-                <View style={s.menu}>
-                  <Pressable
-                    style={s.menuItem}
-                    onPress={(e) => { e.stopPropagation(); setMenuForId(null); setEditId(item.id); setEditOpen(true); }}
-                  >
-                    <Ionicons name="create-outline" size={18} color={theme.colors.text} />
-                    <Text style={s.menuLabel}>Edit novel</Text>
-                  </Pressable>
-                  <Pressable
-                    style={s.menuItem}
-                    onPress={(e) => { e.stopPropagation(); setMenuForId(null); removeNovel(item.id); }}
-                  >
-                    <Ionicons name="trash-outline" size={18} color={theme.colors.text} />
-                    <Text style={s.menuLabel}>Remove from Library</Text>
-                  </Pressable>
-                </View>
-              )}
             </Pressable>
           )}
         />
-      )}
-
-      {/* Full-screen scrim to close any open menu (below menu) */}
-      {menuForId != null && (
-        <Pressable style={s.scrim} onPress={() => setMenuForId(null)} />
       )}
 
       {/* Floating + button */}
@@ -157,6 +142,43 @@ export default function Library() {
         onClose={() => setEditOpen(false)}
         onSaved={() => { setEditOpen(false); reload(); }}
       />
+
+      {/* === TOP-LEVEL MODAL MENU (over everything; not blocked by scrim) === */}
+      <Modal
+        transparent
+        visible={menuForId != null}
+        animationType="fade"
+        onRequestClose={() => setMenuForId(null)}
+      >
+        {/* Scrim */}
+        <Pressable style={s.modalBackdrop} onPress={() => setMenuForId(null)} />
+
+        {/* Floating menu */}
+        <View style={[s.menuModal, { top: menuTop }]}>
+          <Pressable
+            style={s.menuItem}
+            onPress={() => {
+              setMenuForId(null);
+              if (active) { setEditId(active.id); setEditOpen(true); }
+            }}
+          >
+            <Ionicons name="create-outline" size={18} color={theme.colors.text} />
+            <Text style={s.menuLabel}>Edit novel</Text>
+          </Pressable>
+
+          <Pressable
+            style={s.menuItem}
+            onPress={() => {
+              const id = active?.id;
+              setMenuForId(null);
+              if (id != null) removeNovel(id);
+            }}
+          >
+            <Ionicons name="trash-outline" size={18} color={theme.colors.text} />
+            <Text style={s.menuLabel}>Remove from Library</Text>
+          </Pressable>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -167,12 +189,11 @@ function initials(title: string) {
 }
 
 const styles = createStyles((t) => StyleSheet.create({
-  // make this a positioning context for the scrim
   container: { flex: 1, backgroundColor: t.colors.bg, position: "relative" },
 
   header: {
     paddingVertical: t.spacing(4),
-    paddingHorizontal: t.spacing(4),
+    paddingHorizontal: t.spacing(1),
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -190,7 +211,7 @@ const styles = createStyles((t) => StyleSheet.create({
     alignItems: "center",
     backgroundColor: t.colors.card,
     borderRadius: t.radius.lg,
-    padding: t.spacing(3),
+    padding: t.spacing(1.5),
     gap: t.spacing(2),
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: t.colors.border,
@@ -212,25 +233,20 @@ const styles = createStyles((t) => StyleSheet.create({
 
   menuBtn: { paddingHorizontal: 8, paddingVertical: 4 },
 
-  menu: {
+  // === Modal overlay ===
+  modalBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.35)" },
+  menuModal: {
     position: "absolute",
-    top: 80,
-    right: 8,
+    right: 16,
     backgroundColor: t.colors.card,
     borderRadius: t.radius.md,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: t.colors.border,
     overflow: "hidden",
-    zIndex: 101,           
-    elevation: 12,         
+    elevation: 12,
     shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 4 },
   },
-  scrim: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "transparent",
-    zIndex: 100,
-    elevation: 8,
-  },
+
   menuItem: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 12 },
   menuLabel: { color: t.colors.text },
 
