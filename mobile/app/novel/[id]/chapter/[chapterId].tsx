@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView } from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, NativeSyntheticEvent, NativeScrollEvent } from "react-native";
 import { useLocalSearchParams, Link, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme, createStyles } from "../../../../src/theme";
 import { initDb } from "../../../../src/db";
+
+// NEW: bottom sheet
+import ReaderSheet from "./[chapter]/ReaderSheet";
 
 type ChapterListItem = { id: number; seq: number; display_title: string | null };
 type ChapterVariant = { id: number; title: string | null; content: string; variant_type: string; lang: string };
@@ -20,8 +23,27 @@ export default function Reader() {
   const [chapters, setChapters] = useState<ChapterListItem[]>([]);
   const [current, setCurrent] = useState<ChapterVariant | null>(null);
   const [msg, setMsg] = useState("Loading…");
+  const [novelTitle, setNovelTitle] = useState<string>("");
   const scrollRef = useRef<ScrollView>(null);
   const dbRef = useRef<any>(null);
+
+  // sheet & reader UI state
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [panel, setPanel] = useState<"info" | "font" | "settings" | "more">("info");
+  const [readPct, setReadPct] = useState(0);
+
+  // Reader style state (Font tab controls)
+  const [fontFamily, setFontFamily] = useState<string | undefined>(undefined); // e.g., "Nunito Sans"
+  const [fontSize, setFontSize] = useState(16);
+  const [lineHeight, setLineHeight] = useState<number | "default">("default");
+
+  //Tap controls
+  const [isDragging, setIsDragging] = useState(false);
+  const touchStartRef = useRef({ y: 0, t: 0 });
+
+  // consider these your tap thresholds
+  const TAP_SLOP_PX = 10;
+  const TAP_MAX_MS = 250;
 
   useEffect(() => {
     let alive = true;
@@ -31,6 +53,9 @@ export default function Reader() {
       dbRef.current = db;
       await loadChapters(db);
       await loadCurrent(db, chId);
+      // Load novel title
+      const rows = await db.select("SELECT title FROM novels WHERE id = ? LIMIT 1", [novelId]);
+      setNovelTitle(rows[0]?.title || "Novel");
       setMsg("Ready");
       // jump to top when chapter changes
       requestAnimationFrame(() => scrollRef.current?.scrollTo({ y: 0, animated: false }));
@@ -66,11 +91,13 @@ export default function Reader() {
     setCurrent(rows[0] ?? null);
   }
 
-  const { prev, next } = useMemo(() => {
-    const idx = chapters.findIndex(c => c.id === chId);
+  const { prev, next, idx, total } = useMemo(() => {
+    const i = chapters.findIndex(c => c.id === chId);
     return {
-      prev: idx > 0 ? chapters[idx - 1] : null,
-      next: idx >= 0 && idx < chapters.length - 1 ? chapters[idx + 1] : null,
+      prev: i > 0 ? chapters[i - 1] : null,
+      next: i >= 0 && i < chapters.length - 1 ? chapters[i + 1] : null,
+      idx: i >= 0 ? i + 1 : 0,
+      total: chapters.length,
     };
   }, [chapters, chId]);
 
@@ -89,11 +116,45 @@ export default function Reader() {
     });
   }
 
+  // Calculate reading progress while scrolling
+  function onScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
+    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const max = Math.max(1, contentSize.height - layoutMeasurement.height);
+    const pct = Math.min(1, Math.max(0, contentOffset.y / max));
+    setReadPct(pct);
+  }
+
+  // Helpers for routing from sheet
+  function openTOC() {
+    // we include a tab hint; ensure your details page reads ?tab=toc
+    router.push({ pathname: "/novel/[id]", params: { id: String(novelId), tab: "toc" } });
+    setSheetOpen(false);
+  }
+  function openAbout() {
+    router.push({ pathname: "/novel/[id]", params: { id: String(novelId), tab: "about" } });
+    setSheetOpen(false);
+  }
+
+  const effectiveLineHeight = lineHeight === "default" ? undefined : Math.round(fontSize * lineHeight);
+
+  function handleTouchStart(e: any) {
+    touchStartRef.current = {
+      y: e.nativeEvent.pageY,
+      t: Date.now(),
+    };
+  }
+
+  function handleTouchEnd(e: any) {
+    const dy = Math.abs(e.nativeEvent.pageY - touchStartRef.current.y);
+    const dt = Date.now() - touchStartRef.current.t;
+    if (!isDragging && dy < TAP_SLOP_PX && dt < TAP_MAX_MS) {
+      setSheetOpen(true);     // open only on true tap
+    }
+  }
+
   return (
     <View style={s.page}>
-      <View style={s.header}>
-        
-      </View>
+      <View style={s.header} />
 
       {!current ? (
         <View style={s.empty}>
@@ -101,70 +162,141 @@ export default function Reader() {
           <Text style={s.emptySub}>{msg}</Text>
         </View>
       ) : (
-        <ScrollView ref={scrollRef} contentContainerStyle={s.contentWrap}>
-          {/* Navigation controls as a normal item */}
-          <View style={[s.nav, { marginTop: 0, marginBottom: 24 }]}> 
-            <Pressable style={[s.pill, !prev && s.pillDisabled]} onPress={goPrev} disabled={!prev}>
-              <Ionicons name="chevron-back" size={16} color={theme.colors.text} />
-              <Text style={s.pillTxt}>Back</Text>
-            </Pressable>
-
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={s.contentWrap}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+          onScrollBeginDrag={() => setIsDragging(true)}
+          onScrollEndDrag={() => setIsDragging(false)}
+          onMomentumScrollEnd={() => setIsDragging(false)}
+        >
+          {/* Rectangle: Novel Title */}
+          <View style={s.rectContainer}>
             <Link href={{ pathname: "/novel/[id]", params: { id: String(novelId) } }} asChild>
-              <Pressable style={s.pill}>
-                <Text style={s.pillTxt}>Chapters List</Text>
+              <Pressable style={s.novelTitleWrap} android_ripple={{ color: theme.colors.border }}>
+                <Text style={s.novelTitle} numberOfLines={1}>{novelTitle}</Text>
               </Pressable>
             </Link>
-
-            <Pressable style={[s.pill, !next && s.pillDisabled]} onPress={goNext} disabled={!next}>
-              <Text style={s.pillTxt}>Next</Text>
-              <Ionicons name="chevron-forward" size={16} color={theme.colors.text} />
-            </Pressable>
           </View>
 
-          <View style={s.headerRow}>
-            <Text style={s.title}>{current.title || "Untitled chapter"}</Text>
-            {/* Future: link to editor route */}
-            {/* <Link href={`/novel/${novelId}/editor/${chId}`} asChild>
-              <Pressable style={s.btn}><Text style={s.btnTxt}>Edit Chapter</Text></Pressable>
-            </Link> */}
-          </View>
-
-          <Text style={s.meta}>Variant: {current.variant_type} • Lang: {current.lang}</Text>
-
-          {/* Content: Text preserves \n; RN handles wrapping. */}
-          <Text style={s.body}>{current.content}</Text>
-
-          {/* Navigation controls at the bottom */}
-          <View style={[s.nav, { marginTop: 32, marginBottom: 0 }]}> 
-            <Pressable style={[s.pill, !prev && s.pillDisabled]} onPress={goPrev} disabled={!prev}>
-              <Ionicons name="chevron-back" size={16} color={theme.colors.text} />
-              <Text style={s.pillTxt}>Back</Text>
-            </Pressable>
-
-            <Link href={{ pathname: "/novel/[id]", params: { id: String(novelId) } }} asChild>
-              <Pressable style={s.pill}>
-                <Text style={s.pillTxt}>Chapters List</Text>
+          {/* Rectangle: Top navigation chips */}
+          <View style={[s.rectContainer, { marginTop: 16 }]}> 
+            <View style={[s.nav, { marginTop: 0, marginBottom: 0 }]}> 
+              <Pressable style={[s.pill, !prev && s.pillDisabled]} onPress={goPrev} disabled={!prev}>
+                <Ionicons name="chevron-back" size={16} color={theme.colors.text} />
+                <Text style={s.pillTxt}>Back</Text>
               </Pressable>
-            </Link>
 
-            <Pressable style={[s.pill, !next && s.pillDisabled]} onPress={goNext} disabled={!next}>
-              <Text style={s.pillTxt}>Next</Text>
-              <Ionicons name="chevron-forward" size={16} color={theme.colors.text} />
-            </Pressable>
+              <Link href={{ pathname: "/novel/[id]", params: { id: String(novelId) } }} asChild>
+                <Pressable style={s.pill}>
+                  <Text style={s.pillTxt}>Chapters List</Text>
+                </Pressable>
+              </Link>
+
+              <Pressable style={[s.pill, !next && s.pillDisabled]} onPress={goNext} disabled={!next}>
+                <Text style={s.pillTxt}>Next</Text>
+                <Ionicons name="chevron-forward" size={16} color={theme.colors.text} />
+              </Pressable>
+            </View>
+          </View>
+
+          {/* Rectangle: Reader content */}
+          <View style={[s.rectContainer, { marginTop: 16 }]}> 
+            <View style={s.headerRow}>
+              <Text style={s.title}>{current.title || "Untitled chapter"}</Text>
+            </View>
+
+            <Text style={s.meta}>Variant: {current.variant_type} • Lang: {current.lang}</Text>
+
+            {/* Content */}
+            <Text style={[s.body, { fontFamily, fontSize, lineHeight: effectiveLineHeight }]}> 
+              {current.content}
+            </Text>
+          </View>
+
+          {/* Rectangle: Bottom navigation chips */}
+          <View style={[s.rectContainer, { marginTop: 32, marginBottom: 0 }]}> 
+            <View style={[s.nav, { marginTop: 0, marginBottom: 0 }]}> 
+              <Pressable style={[s.pill, !prev && s.pillDisabled]} onPress={goPrev} disabled={!prev}>
+                <Ionicons name="chevron-back" size={16} color={theme.colors.text} />
+                <Text style={s.pillTxt}>Back</Text>
+              </Pressable>
+
+              <Link href={{ pathname: "/novel/[id]", params: { id: String(novelId) } }} asChild>
+                <Pressable style={s.pill}>
+                  <Text style={s.pillTxt}>Chapters List</Text>
+                </Pressable>
+              </Link>
+
+              <Pressable style={[s.pill, !next && s.pillDisabled]} onPress={goNext} disabled={!next}>
+                <Text style={s.pillTxt}>Next</Text>
+                <Ionicons name="chevron-forward" size={16} color={theme.colors.text} />
+              </Pressable>
+            </View>
           </View>
         </ScrollView>
       )}
+
+      {/* Bottom sheet */}
+      <ReaderSheet
+        open={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        panel={panel}
+        onChangePanel={setPanel}
+        // info props
+        idx={idx}
+        total={total}
+        readPct={readPct}
+        onPrev={goPrev}
+        onNext={goNext}
+        prevDisabled={!prev}
+        nextDisabled={!next}
+        onOpenContents={openTOC}
+        onOpenAbout={openAbout}
+        // font props
+        fontFamily={fontFamily}
+        fontSize={fontSize}
+        lineHeight={lineHeight}
+        onFontFamily={setFontFamily}
+        onFontSize={setFontSize}
+        onLineHeight={setLineHeight}
+      />
     </View>
   );
 }
 
 const styles = createStyles((t) => StyleSheet.create({
-  page: { flex: 1, backgroundColor: t.colors.bg, padding: t.spacing(4)},
+  rectContainer: {
+    backgroundColor: t.colors.card,
+    borderRadius: t.radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: t.colors.border,
+    padding: t.spacing(3),
+    shadowColor: t.colors.bg,
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  novelTitleWrap: {
+    marginBottom: 0,
+    marginTop: 0,
+  },
+  novelTitle: {
+    color: t.colors.text,
+    fontSize: t.font.lg,
+    fontWeight: "bold",
+    maxWidth: "90%",
+  },
+  page: { flex: 1, backgroundColor: t.colors.bg, padding: t.spacing(2) },
   nav: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    gap: t.spacing(2),
+    gap: t.spacing(3),
+    marginTop: t.spacing(2),
     marginBottom: t.spacing(10),
   },
   pill: {
@@ -179,7 +311,6 @@ const styles = createStyles((t) => StyleSheet.create({
     borderColor: t.colors.border,
   },
   pillDisabled: { opacity: 0.4 },
-  pillCenter: { flex: 1, justifyContent: "center", alignItems: "center" },
   pillTxt: { color: t.colors.text, fontWeight: "700" },
 
   empty: { flex: 1, alignItems: "center", justifyContent: "center", marginTop: 100 },
@@ -187,11 +318,9 @@ const styles = createStyles((t) => StyleSheet.create({
   emptySub: { color: t.colors.textDim },
 
   contentWrap: { paddingBottom: 48 },
-  header: { marginBottom: t.spacing(20) },
+  header: { marginBottom: t.spacing(10) },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
   title: { color: t.colors.text, fontSize: t.font.lg, fontWeight: "800" },
   meta: { color: t.colors.textDim, marginBottom: 12 },
   body: { color: t.colors.text, lineHeight: 24, fontSize: 16 },
-  btn: { backgroundColor: t.colors.tint, paddingVertical: 8, paddingHorizontal: 12, borderRadius: t.radius.sm },
-  btnTxt: { color: "#fff", fontWeight: "700" },
 }));
