@@ -51,15 +51,24 @@ The whole app works offline (for now) since its for my own use, but have had ide
 - Android Studio Virtual device manager (Recommended for mobile)
 
 **Setup & Run**
+
+Clone or download the repo.
+
+The project is divided into two parts, the desktop and mobile versions, you will have to do the following on each:
+
 ```bash
-# install deps
-pnpm install
+# go to folder
+cd desktop
+cd mobile
 
-# run desktop app (dev)
-pnpm tauri dev
+# install all dependencies
+npm install
 
-# build a release
-pnpm tauri build
+# run desktop version
+npm run tauri:dev
+
+#run mobile version
+npm start
 ```
 
 ## Future of the app

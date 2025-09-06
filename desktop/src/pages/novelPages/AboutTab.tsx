@@ -54,7 +54,7 @@ export default function AboutTab({
   return (
     <div className="about-tab">
       {description ? (
-        <p className="desc-lg">{description}</p>
+        <div className="desc-lg" style={{ whiteSpace: 'pre-line' }}>{description}</div>
       ) : (
         <div className="empty small"><p>No description yet.</p></div>
       )}
