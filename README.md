@@ -41,6 +41,8 @@ The whole app works offline (for now) since its for my own use, but have had ide
 - **Database**: SQLite on-device (expo-sqlite) 
 - **Import/Export**: ZIP/json using RN-compatible libs (e.g., `react-native-zip-archive`) with the same `data.json` schema.
 
+## Install
+See **[Downloads (Latest)](./docs/INSTALL.md)** • **[All Versions](./docs/VERSIONS.md)**
 
 
 ## Development Instructions
