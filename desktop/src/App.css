@@ -87,7 +87,7 @@ body{
     var(--bg);
 }
 
-.page{padding:24px;max-width:1200px;margin:0 auto}
+.page{padding:24px;max-width:1400px;margin:0 auto}
 
 a.link-card,
 a.chapter-link{color:inherit;text-decoration:none}
@@ -384,83 +384,108 @@ a.chapter-link{color:inherit;text-decoration:none}
   color:var(--text);
 }
 
+/* ========== Accordion ToC (desktop) ========== */
+.toc-wrap.accordion{
+  display:grid;
+  gap:12px;
+}
 
-/* TOC range bar */
-.toc-wrap{ display:grid; gap:10px; }
+/* Top-left controls (Expand/Collapse all) */
+.toc-controls{ display:flex; gap:8px; }
+.btn-ghost{
+  padding:.45rem .7rem;
+  border-radius:10px;
+  border:1px solid var(--surface-4);
+  background:var(--surface-2);
+  color:var(--text);
+  font-weight:700;
+  cursor:pointer;
+  transition:background .15s ease, border-color .15s ease, transform .08s ease, opacity .15s ease;
+}
+.btn-ghost:hover{ background:var(--surface-3); border-color:var(--surface-5); }
+.btn-ghost:active{ transform:translateY(1px); }
+.btn-ghost:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
 
-.toc-ranges{
+.toc-accordion-list{
+  display:grid;
+  gap:10px;
+}
+
+/* Each block */
+.toc-block{
+  border-radius:12px;
+  border:1px solid var(--surface-4);
+  background:var(--surface-1);
+  overflow:hidden;
+  box-shadow: var(--shadow-soft, 0 1px 1px rgba(0,0,0,.05));
+}
+
+/* Header button */
+.toc-block-header{
+  width:100%;
   display:grid;
   grid-template-columns:auto 1fr auto;
   align-items:center;
-  gap:8px;
-  padding:6px;
-  border-radius:12px;
-  background:var(--surface-1);
-  border:var(--border-strong);
-}
-
-.range-scroller{
-  display:flex; gap:6px; overflow:auto; scrollbar-width:thin;
-  padding:2px;
-}
-.range-scroller::-webkit-scrollbar{ height:8px; }
-.range-scroller::-webkit-scrollbar-thumb{ background:var(--surface-4); border-radius:999px; }
-
-.range-tab{
-  flex:0 0 auto;
-  min-width:110px;
-  padding:.55rem .8rem;
-  border-radius:999px;
-  border:1px solid var(--surface-4);
+  gap:10px;
+  padding:.7rem .9rem;
   background:var(--surface-2);
   color:var(--text);
-  font-weight:700; letter-spacing:.2px;
+  font-weight:800;
+  letter-spacing:.2px;
+  border:0;
+  border-bottom:1px solid var(--surface-4);
   cursor:pointer;
-  transition:background .15s ease, border-color .15s ease, transform .08s ease, opacity .15s ease;
-  opacity:.9;
+  transition:background .15s ease, border-color .15s ease, color .15s ease;
 }
-.range-tab:hover{ background:var(--surface-3); border-color:var(--surface-5); opacity:1; }
-.range-tab.active{
+.toc-block-header:hover{ background:var(--surface-3); }
+.toc-block-header:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+
+.toc-block.open .toc-block-header{
   background:var(--chip-bg);
   border-color:var(--chip-border);
-  box-shadow:var(--shadow);
-  opacity:1;
 }
 
-.mini-nav{
-  height:34px; width:34px;
-  display:grid; place-items:center;
-  border-radius:8px;
+/* caret, label, count */
+.toc-block-header .caret{
+  width:1.1rem;
+  text-align:center;
+  opacity:.9;
+}
+.toc-block-header .range-label{
+  font-weight:800;
+}
+.toc-block-header .count{
+  font-size:.85rem;
+  color:var(--muted);
+  background:var(--surface-3);
   border:1px solid var(--surface-4);
-  background:var(--surface-2);
-  color:var(--text);
-  cursor:pointer;
-  transition:background .15s ease, border-color .15s ease, transform .08s ease, opacity .15s ease;
+  padding:.1rem .45rem;
+  border-radius:999px;
 }
-.mini-nav:hover{ background:var(--surface-3); border-color:var(--surface-5); }
-.mini-nav:active{ transform:translateY(1px); }
-.mini-nav:disabled{ opacity:.45; cursor:default; }
 
-
-.read-progress{ margin:8px 0 4px; }
-.read-progress-top{
+/* Body */
+.toc-block-body{
+  padding:.55rem .7rem .8rem;
+  background:var(--surface-1);
+  animation: tocFadeIn .14s ease-out both;
+}
+.toc-block-body .chapter-list{
+  margin:0; padding:0;
+}
+.toc-block-body .chapter-item{
   display:flex; align-items:center; justify-content:space-between;
-  font-size:.9rem; color:var(--muted); margin-bottom:6px;
 }
-.read-progress-top b{ color:var(--text); }
 
-.progress{
-  height:8px; width:100%;
-  background:var(--surface-2);
-  border:var(--border);
-  border-color:var(--border-strong-color);
-  border-radius:999px; overflow:hidden;
+/* Optional subtle fade/slide for opening */
+@keyframes tocFadeIn{
+  from{ opacity:0; transform:translateY(-2px); }
+  to{ opacity:1; transform:translateY(0); }
 }
-.progress-bar{
-  height:100%;
-  background: linear-gradient(135deg, color-mix(in oklab, var(--accent) 30%, transparent), color-mix(in oklab, var(--accent) 60%, transparent));
-  border-right: 1px solid var(--chip-border);
+@media (prefers-reduced-motion: reduce){
+  .toc-block-body{ animation:none; }
 }
+
+
   
 /* ---------- Recommendations tab ---------- */
 .recs-tab .hint{
@@ -969,11 +994,35 @@ select.library-edit-input:focus{
 /* Fine-tune the card without touching .card globally */
 .history-card{
   position:relative;
+  min-width: 420px;
+}
+/* Row stays flex */
+.history-card .history-meta-row{
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
 }
 
-/* Title row with optional status badge */
-.history-meta-row{
-  display:flex; align-items:center; gap:8px;
+/* Make the title wrap to 2 lines max */
+.history-card .history-meta-row > .title{
+  margin:0;
+  flex:1 1 0;
+  min-width:0;                          
+  line-height:1.2;
+
+  white-space:normal !important;        
+  overflow:hidden;                      
+  text-overflow:clip;                   
+
+  display:-webkit-box !important;
+  -webkit-box-orient:vertical;
+  -webkit-line-clamp:3;
+  word-break:break-word;                
+}
+
+/* Keep the badge from shrinking or wrapping */
+.history-card .history-meta-row > .history-badge{
+  flex:0 0 auto;
 }
 
 /* Small neutral badge for status or tags */
@@ -1021,6 +1070,18 @@ select.library-edit-input:focus{
 /* Load more area */
 .history-loadmore{
   display:grid; place-items:center; margin-top:16px;
+}
+
+/* Responsive: show only 1 card per row if <1000px */
+@media (max-width: 1000px) {
+  .history-grid {
+    display: block !important;
+  }
+  .history-card {
+    min-width: 0;
+    width: 100%;
+    margin-bottom: 18px;
+  }
 }
 /* =======================================
    Novel Finder (scoped, unique classes)
