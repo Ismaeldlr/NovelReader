@@ -1,4 +1,4 @@
-# Novel Reader (React + Tauri + SQLite)
+# Novel Reader
 
 A desktop / mobile offline-first WebNovel manager & reader app. Import novels through TXT or EPUB, you can read them, edit the chapters and record your reading progress.
 

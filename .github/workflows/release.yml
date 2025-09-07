@@ -1,0 +1,41 @@
+name: Release installers
+on:
+  push:
+    tags: [ "0.1.0" ]  # e.g. v0.1.0
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.cut.outputs.version }}
+    steps:
+      - name: Extract version from tag
+        id: cut
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+  windows:
+    runs-on: windows-latest
+    needs: meta
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with: { node-version: 18, cache: 'npm' }
+      - run: npm ci
+      - run: npm run tauri:build
+      - name: Collect installers (NSIS)
+        shell: bash
+        run: |
+          mkdir -p release
+          SRC="src-tauri/target/release/bundle/nsis"
+          EXE=$(ls "$SRC"/*.exe | head -n 1)
+          cp "$EXE" "release/NovelReader-Setup-${{ needs.meta.outputs.version }}.exe"
+          cp "$EXE" "release/NovelReader-Setup.exe"   # stable name for /releases/latest
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: true
+          files: |
+            release/NovelReader-Setup-${{ needs.meta.outputs.version }}.exe
+            release/NovelReader-Setup.exe
